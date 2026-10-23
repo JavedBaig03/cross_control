@@ -8,6 +8,15 @@ import 'storage_service.dart';
 
 typedef RequestApprovalHandler = Future<bool> Function(ConnectionRequest request);
 
+enum NetworkConnectionStatus {
+  idle,
+  connecting,
+  awaitingApproval,
+  connected,
+  remoteControlReady,
+  failed,
+}
+
 class NetworkService {
   static final NetworkService _instance = NetworkService._internal();
   factory NetworkService() => _instance;
@@ -16,16 +25,26 @@ class NetworkService {
   ServerSocket? _serverSocket;
   Socket? _activeSocket;
   StreamSubscription? _socketSubscription;
+  bool _isClientMode = false;
 
   // Real-time state notifiers
   final ValueNotifier<int> latencyMsNotifier = ValueNotifier<int>(0);
   final ValueNotifier<int> eventsSentNotifier = ValueNotifier<int>(0);
   final ValueNotifier<int> eventsReceivedNotifier = ValueNotifier<int>(0);
+  final ValueNotifier<NetworkConnectionStatus> statusNotifier =
+      ValueNotifier<NetworkConnectionStatus>(NetworkConnectionStatus.idle);
 
-  // Callbacks
+  // Receiver-side handlers (Server)
   RequestApprovalHandler? onRequestApproval;
-  void Function(ControlEvent event)? onEventReceived;
-  void Function(String reason)? onDisconnected;
+  void Function(ControlEvent event)? _serverEventHandler;
+  void Function(String reason)? _serverDisconnectHandler;
+
+  // Controller-side handlers (Client)
+  void Function(ControlEvent event)? _clientEventHandler;
+  void Function(String reason)? _clientDisconnectHandler;
+
+  // Pipeline readiness completer for Controller side
+  Completer<bool>? _readyAckCompleter;
 
   Timer? _pingTimer;
   int _lastPingSentTimestamp = 0;
@@ -39,9 +58,13 @@ class NetworkService {
     required void Function(String reason) disconnectHandler,
   }) async {
     onRequestApproval = requestApprovalHandler;
-    onEventReceived = eventHandler;
-    onDisconnected = disconnectHandler;
+    _serverEventHandler = eventHandler;
+    _serverDisconnectHandler = disconnectHandler;
 
+    await _ensureServerRunning();
+  }
+
+  Future<void> _ensureServerRunning() async {
     if (_serverSocket != null) return;
 
     try {
@@ -51,7 +74,18 @@ class NetworkService {
         shared: true,
       );
 
-      _serverSocket?.listen(_handleIncomingClient);
+      _serverSocket?.listen(
+        _handleIncomingClient,
+        onError: (err) {
+          debugPrint('TCP Server error: $err. Attempting auto-recovery...');
+          _serverSocket?.close();
+          _serverSocket = null;
+          Future.delayed(const Duration(seconds: 1), _ensureServerRunning);
+        },
+        onDone: () {
+          _serverSocket = null;
+        },
+      );
       debugPrint('TCP Server listening on port ${StorageService.tcpControlPort}');
     } catch (e) {
       debugPrint('Error starting TCP Server: $e');
@@ -66,9 +100,11 @@ class NetworkService {
         accepted: false,
         reason: 'Device is currently busy in another control session',
       );
-      client.writeln(jsonEncode(reject.toMap()));
-      await client.flush();
-      await client.close();
+      try {
+        client.writeln(jsonEncode(reject.toMap()));
+        await client.flush();
+        await client.close();
+      } catch (_) {}
       return;
     }
 
@@ -77,6 +113,7 @@ class NetworkService {
     } catch (_) {}
 
     _activeSocket = client;
+    _isClientMode = false;
     eventsReceivedNotifier.value = 0;
     eventsSentNotifier.value = 0;
     bool isHandshakeApproved = false;
@@ -96,6 +133,22 @@ class NetworkService {
 
           if (type == 'connect_request') {
             final request = ConnectionRequest.fromMap(data);
+            statusNotifier.value = NetworkConnectionStatus.awaitingApproval;
+
+            // Check accessibility permissions on macOS prior to approval
+            if (Platform.isMacOS) {
+              final hasPerm = await NativeInputService().checkAccessibilityPermission();
+              if (!hasPerm) {
+                final response = ConnectionResponse(
+                  accepted: false,
+                  reason: 'Accessibility permission is not granted on this Mac. Please grant permission in System Settings > Privacy & Security > Accessibility.',
+                );
+                client.writeln(jsonEncode(response.toMap()));
+                await client.flush();
+                disconnect(reason: 'Accessibility permission required');
+                return;
+              }
+            }
 
             // Ask receiving user for approval
             final bool accepted = onRequestApproval != null
@@ -104,6 +157,7 @@ class NetworkService {
 
             if (accepted) {
               isHandshakeApproved = true;
+              statusNotifier.value = NetworkConnectionStatus.connected;
               final screenSize = await NativeInputService().getScreenSize();
               final response = ConnectionResponse(
                 accepted: true,
@@ -137,8 +191,18 @@ class NetworkService {
 
         eventsReceivedNotifier.value++;
 
+        // Handle pipeline readiness handshake
+        if (event is ReadyInitEvent) {
+          final screenSize = await NativeInputService().getScreenSize();
+          sendEvent(ReadyAckEvent(
+            screenWidth: screenSize.width,
+            screenHeight: screenSize.height,
+          ));
+          statusNotifier.value = NetworkConnectionStatus.remoteControlReady;
+          return;
+        }
+
         if (event is PingEvent) {
-          // Respond with Pong immediately for RTT measurement
           final pong = PongEvent(timestamp: event.timestamp);
           sendEvent(pong);
           return;
@@ -149,7 +213,7 @@ class NetworkService {
           return;
         }
 
-        onEventReceived?.call(event);
+        _serverEventHandler?.call(event);
       } catch (e) {
         debugPrint('Error parsing control event: $e');
       }
@@ -170,8 +234,10 @@ class NetworkService {
     required void Function(ControlEvent event) eventHandler,
     required void Function(String reason) disconnectHandler,
   }) async {
-    onEventReceived = eventHandler;
-    onDisconnected = disconnectHandler;
+    _clientEventHandler = eventHandler;
+    _clientDisconnectHandler = disconnectHandler;
+    _isClientMode = true;
+    statusNotifier.value = NetworkConnectionStatus.connecting;
 
     final completer = Completer<ConnectionResponse>();
 
@@ -196,7 +262,7 @@ class NetworkService {
           .cast<List<int>>()
           .transform(utf8.decoder)
           .transform(const LineSplitter())
-          .listen((line) {
+          .listen((line) async {
         if (line.trim().isEmpty) return;
 
         if (!isHandshakeComplete) {
@@ -209,9 +275,29 @@ class NetworkService {
 
               if (response.accepted) {
                 isHandshakeComplete = true;
+                statusNotifier.value = NetworkConnectionStatus.connected;
                 _startPingTimer();
-                if (!completer.isCompleted) completer.complete(response);
+
+                // Send 3-way initialization check
+                _readyAckCompleter = Completer<bool>();
+                sendEvent(ReadyInitEvent());
+
+                // Wait up to 4s for Receiver to acknowledge pipeline ready
+                try {
+                  await _readyAckCompleter!.future.timeout(const Duration(seconds: 4));
+                  statusNotifier.value = NetworkConnectionStatus.remoteControlReady;
+                  if (!completer.isCompleted) completer.complete(response);
+                } catch (_) {
+                  if (!completer.isCompleted) {
+                    completer.complete(ConnectionResponse(
+                      accepted: false,
+                      reason: 'Remote control pipeline initialization timed out. Please try connecting again.',
+                    ));
+                  }
+                  disconnect(reason: 'Pipeline initialization timeout');
+                }
               } else {
+                statusNotifier.value = NetworkConnectionStatus.failed;
                 if (!completer.isCompleted) completer.complete(response);
                 disconnect(reason: response.reason ?? 'Connection declined by remote laptop');
               }
@@ -243,6 +329,14 @@ class NetworkService {
 
           eventsReceivedNotifier.value++;
 
+          if (event is ReadyAckEvent) {
+            if (_readyAckCompleter != null && !_readyAckCompleter!.isCompleted) {
+              _readyAckCompleter?.complete(true);
+            }
+            statusNotifier.value = NetworkConnectionStatus.remoteControlReady;
+            return;
+          }
+
           if (event is PongEvent) {
             final now = DateTime.now().millisecondsSinceEpoch;
             final rtt = now - event.timestamp;
@@ -255,7 +349,7 @@ class NetworkService {
             return;
           }
 
-          onEventReceived?.call(event);
+          _clientEventHandler?.call(event);
         } catch (e) {
           debugPrint('Error parsing incoming event: $e');
         }
@@ -272,6 +366,7 @@ class NetworkService {
       });
 
       // Send connection request
+      statusNotifier.value = NetworkConnectionStatus.awaitingApproval;
       final request = ConnectionRequest(
         fromKey: myKey,
         deviceName: myName,
@@ -282,6 +377,7 @@ class NetworkService {
       socket.writeln(jsonEncode(request.toMap()));
       await socket.flush();
     } catch (e) {
+      statusNotifier.value = NetworkConnectionStatus.failed;
       if (!completer.isCompleted) {
         completer.complete(ConnectionResponse(
           accepted: false,
@@ -318,10 +414,15 @@ class NetworkService {
     }
   }
 
-  /// Disconnect active session
+  /// Disconnect active session safely
   void disconnect({String reason = 'Disconnected'}) {
     _pingTimer?.cancel();
     _pingTimer = null;
+
+    if (_readyAckCompleter != null && !_readyAckCompleter!.isCompleted) {
+      _readyAckCompleter?.complete(false);
+    }
+    _readyAckCompleter = null;
 
     if (_activeSocket != null) {
       try {
@@ -334,7 +435,13 @@ class NetworkService {
       _activeSocket?.destroy();
       _activeSocket = null;
 
-      onDisconnected?.call(reason);
+      if (_isClientMode) {
+        _clientDisconnectHandler?.call(reason);
+      } else {
+        _serverDisconnectHandler?.call(reason);
+      }
+      _isClientMode = false;
+      statusNotifier.value = NetworkConnectionStatus.idle;
     }
   }
 
@@ -345,3 +452,4 @@ class NetworkService {
     _serverSocket = null;
   }
 }
+

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../models/control_events.dart';
 import '../../models/peer_info.dart';
 import '../../services/key_mapping_service.dart';
+import '../../services/native_input_service.dart';
 import '../../services/network_service.dart';
 import '../../services/storage_service.dart';
 import '../theme/app_colors.dart';
@@ -38,6 +39,40 @@ class _ControllerScreenState extends State<ControllerScreen> {
   @override
   void initState() {
     super.initState();
+    NativeInputService().confinePointer(true);
+    NativeInputService().setLocalInputInterception(true);
+
+    NativeInputService().onInterceptedKey = ({
+      required int vk,
+      required bool isDown,
+      required bool isWinKey,
+      required bool alt,
+    }) {
+      if (!_isControlActive) return;
+
+      if (isWinKey) {
+        // Map Windows key directly to macOS Command key (Carbon code 55)
+        NetworkService().sendEvent(KeyEventData(
+          keyCode: 0x5B,
+          windowsVk: 0x5B,
+          macosVk: 55, // kVK_Command
+          label: 'Meta',
+          isDown: isDown,
+          meta: isDown,
+        ));
+      } else if (alt && vk == 0x20) {
+        // Alt + Space (Option + Space on Mac)
+        NetworkService().sendEvent(KeyEventData(
+          keyCode: 0x20,
+          windowsVk: 0x20,
+          macosVk: 49, // kVK_Space
+          label: 'Space',
+          isDown: isDown,
+          alt: true,
+        ));
+      }
+    };
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
     });
@@ -45,6 +80,9 @@ class _ControllerScreenState extends State<ControllerScreen> {
 
   @override
   void dispose() {
+    NativeInputService().onInterceptedKey = null;
+    NativeInputService().confinePointer(false);
+    NativeInputService().setLocalInputInterception(false);
     _focusNode.dispose();
     super.dispose();
   }
@@ -66,9 +104,13 @@ class _ControllerScreenState extends State<ControllerScreen> {
     });
 
     if (_isControlActive) {
+      NativeInputService().confinePointer(true);
+      NativeInputService().setLocalInputInterception(true);
       NetworkService().sendEvent(ResumeEvent());
       _focusNode.requestFocus();
     } else {
+      NativeInputService().confinePointer(false);
+      NativeInputService().setLocalInputInterception(false);
       NetworkService().sendEvent(PauseEvent(isPaused: true));
     }
   }
@@ -109,6 +151,23 @@ class _ControllerScreenState extends State<ControllerScreen> {
 
     // CRITICAL: Consume the event so the local laptop does not trigger local actions/typing
     return KeyEventResult.handled;
+  }
+
+  void _handlePointerHover(PointerHoverEvent event) {
+    if (!_isControlActive) return;
+
+    final dx = event.delta.dx * _sensitivity;
+    final dy = event.delta.dy * _sensitivity;
+
+    setState(() {
+      _localPointerX = (_localPointerX + (dx / 500)).clamp(0.05, 0.95);
+      _localPointerY = (_localPointerY + (dy / 500)).clamp(0.05, 0.95);
+    });
+
+    NetworkService().sendEvent(MouseMoveEvent(
+      dx: dx,
+      dy: dy,
+    ));
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
@@ -192,6 +251,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
                     cursor: _isControlActive ? SystemMouseCursors.none : SystemMouseCursors.basic,
                     child: Listener(
                       behavior: HitTestBehavior.opaque,
+                      onPointerHover: _handlePointerHover,
                       onPointerMove: _handlePointerMove,
                       onPointerDown: _handlePointerDown,
                       onPointerUp: _handlePointerUp,

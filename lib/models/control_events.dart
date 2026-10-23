@@ -13,6 +13,8 @@ enum EventType {
   disconnect,
   handshakeRequest,
   handshakeResponse,
+  readyInit,
+  readyAck,
 }
 
 abstract class ControlEvent {
@@ -83,6 +85,14 @@ abstract class ControlEvent {
         case 'disc':
           return DisconnectEvent(
             reason: map['r'] as String?,
+            timestamp: map['ts'] as int?,
+          );
+        case 'ready_init':
+          return ReadyInitEvent(timestamp: map['ts'] as int?);
+        case 'ready_ack':
+          return ReadyAckEvent(
+            screenWidth: (map['sw'] as num?)?.toDouble() ?? 1920.0,
+            screenHeight: (map['sh'] as num?)?.toDouble() ?? 1080.0,
             timestamp: map['ts'] as int?,
           );
         default:
@@ -324,3 +334,33 @@ class ConnectionResponse {
     );
   }
 }
+
+class ReadyInitEvent extends ControlEvent {
+  ReadyInitEvent({super.timestamp}) : super(type: EventType.readyInit);
+
+  @override
+  Map<String, dynamic> toMap() => {
+        't': 'ready_init',
+        'ts': timestamp,
+      };
+}
+
+class ReadyAckEvent extends ControlEvent {
+  final double screenWidth;
+  final double screenHeight;
+
+  ReadyAckEvent({
+    required this.screenWidth,
+    required this.screenHeight,
+    super.timestamp,
+  }) : super(type: EventType.readyAck);
+
+  @override
+  Map<String, dynamic> toMap() => {
+        't': 'ready_ack',
+        'sw': screenWidth,
+        'sh': screenHeight,
+        'ts': timestamp,
+      };
+}
+

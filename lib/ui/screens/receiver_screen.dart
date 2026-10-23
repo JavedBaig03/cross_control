@@ -103,6 +103,10 @@ class ReceiverScreenState extends State<ReceiverScreen> {
         macosVk: event.macosVk,
         isDown: event.isDown,
         characters: event.character ?? (event.label.length == 1 ? event.label : null),
+        meta: event.meta,
+        ctrl: event.ctrl,
+        alt: event.alt,
+        shift: event.shift,
       );
     }
   }

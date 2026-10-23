@@ -77,6 +77,18 @@ void main() {
       expect(restoredResume.type, EventType.resumeControl);
     });
 
+    test('ReadyInitEvent and ReadyAckEvent 3-way handshake serialization', () {
+      final init = ReadyInitEvent();
+      final restoredInit = ControlEvent.deserialize(init.serialize()) as ReadyInitEvent;
+      expect(restoredInit.type, EventType.readyInit);
+
+      final ack = ReadyAckEvent(screenWidth: 2560, screenHeight: 1440);
+      final restoredAck = ControlEvent.deserialize(ack.serialize()) as ReadyAckEvent;
+      expect(restoredAck.type, EventType.readyAck);
+      expect(restoredAck.screenWidth, 2560);
+      expect(restoredAck.screenHeight, 1440);
+    });
+
     test('KeyMappingService maps Backspace and keys accurately for Mac and Windows', () {
       final mapper = KeyMappingService();
 

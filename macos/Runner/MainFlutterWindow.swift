@@ -75,6 +75,25 @@ class MainFlutterWindow: NSWindow {
         }
         result(true)
 
+      case "confinePointer":
+        let enable = args?["enable"] as? Bool ?? false
+        if enable {
+          CGAssociateMouseAndMouseCursorPosition(boolean_t(truncating: false))
+        } else {
+          CGAssociateMouseAndMouseCursorPosition(boolean_t(truncating: true))
+          self.currentModifierFlags = []
+        }
+        result(true)
+
+      case "warpPointer":
+        if let x = args?["x"] as? Double, let y = args?["y"] as? Double {
+          CGWarpMouseCursorPosition(CGPoint(x: CGFloat(x), y: CGFloat(y)))
+        }
+        result(true)
+
+      case "setLocalInputInterception":
+        result(true)
+
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -149,16 +168,40 @@ class MainFlutterWindow: NSWindow {
     scrollEvent?.post(tap: .cghidEventTap)
   }
 
+  private var currentModifierFlags: CGEventFlags = []
+
   private func handleKey(args: [String: Any]) {
     let macosVk = args["macosVk"] as? Int ?? args["keyCode"] as? Int ?? 0
     let isDown = args["isDown"] as? Bool ?? true
     let characters = args["characters"] as? String
+    let meta = args["meta"] as? Bool ?? false
+    let ctrl = args["ctrl"] as? Bool ?? false
+    let alt = args["alt"] as? Bool ?? false
+    let shift = args["shift"] as? Bool ?? false
+
+    // Maintain modifier flag states
+    if macosVk == 55 { // Command
+      if isDown { currentModifierFlags.insert(.maskCommand) } else { currentModifierFlags.remove(.maskCommand) }
+    } else if macosVk == 58 || macosVk == 61 { // Option
+      if isDown { currentModifierFlags.insert(.maskAlternate) } else { currentModifierFlags.remove(.maskAlternate) }
+    } else if macosVk == 59 || macosVk == 62 { // Control
+      if isDown { currentModifierFlags.insert(.maskControl) } else { currentModifierFlags.remove(.maskControl) }
+    } else if macosVk == 56 || macosVk == 60 { // Shift
+      if isDown { currentModifierFlags.insert(.maskShift) } else { currentModifierFlags.remove(.maskShift) }
+    }
 
     if let keyEvent = CGEvent(
       keyboardEventSource: nil,
       virtualKey: CGKeyCode(macosVk),
       keyDown: isDown
     ) {
+      var flags = currentModifierFlags
+      if meta { flags.insert(.maskCommand) }
+      if ctrl { flags.insert(.maskControl) }
+      if alt { flags.insert(.maskAlternate) }
+      if shift { flags.insert(.maskShift) }
+      keyEvent.flags = flags
+
       // Non-character control keys: Delete/Backspace (51), Return (36), Tab (48), Esc (53), ForwardDel (117), Arrows (123-126), Modifiers (55-62)
       let nonCharKeys: Set<Int> = [51, 36, 48, 53, 117, 123, 124, 125, 126, 55, 56, 57, 58, 59, 60, 61, 62]
       if let chars = characters, !chars.isEmpty && isDown && !nonCharKeys.contains(macosVk) {

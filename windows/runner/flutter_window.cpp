@@ -57,6 +57,55 @@ std::string GetStringValue(const flutter::EncodableMap& map, const std::string& 
   return defaultValue;
 }
 
+// Global hooks and channel pointers for Windows low-level input interception
+static HHOOK g_keyboardHook = NULL;
+static bool g_isInputInterceptionActive = false;
+static flutter::MethodChannel<flutter::EncodableValue>* g_channel = nullptr;
+static double g_accDx = 0.0;
+static double g_accDy = 0.0;
+
+LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
+  if (nCode == HC_ACTION && g_isInputInterceptionActive) {
+    KBDLLHOOKSTRUCT* pKey = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
+    bool isDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
+
+    // 1. Always let emergency pause shortcut through (Ctrl + Alt + P)
+    bool ctrlPressed = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    bool altPressed = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+    if (pKey->vkCode == 'P' && ctrlPressed && altPressed) {
+      return CallNextHookEx(g_keyboardHook, nCode, wParam, lParam);
+    }
+
+    // 2. Intercept Windows Key (VK_LWIN = 0x5B, VK_RWIN = 0x5C)
+    // Suppress local Start menu, notify Flutter channel so it maps to Command on Mac!
+    if (pKey->vkCode == VK_LWIN || pKey->vkCode == VK_RWIN) {
+      if (g_channel) {
+        flutter::EncodableMap map;
+        map[flutter::EncodableValue("vk")] = flutter::EncodableValue(static_cast<int>(pKey->vkCode));
+        map[flutter::EncodableValue("isDown")] = flutter::EncodableValue(isDown);
+        map[flutter::EncodableValue("isWinKey")] = flutter::EncodableValue(true);
+        map[flutter::EncodableValue("alt")] = flutter::EncodableValue(altPressed);
+        g_channel->InvokeMethod("onInterceptedKey", std::make_unique<flutter::EncodableValue>(map));
+      }
+      return 1; // Block from Windows Shell!
+    }
+
+    // 3. Intercept Alt + Space to prevent Windows Window Menu (SC_KEYMENU)
+    if (pKey->vkCode == VK_SPACE && altPressed) {
+      if (g_channel) {
+        flutter::EncodableMap map;
+        map[flutter::EncodableValue("vk")] = flutter::EncodableValue(static_cast<int>(VK_SPACE));
+        map[flutter::EncodableValue("isDown")] = flutter::EncodableValue(isDown);
+        map[flutter::EncodableValue("isWinKey")] = flutter::EncodableValue(false);
+        map[flutter::EncodableValue("alt")] = flutter::EncodableValue(true);
+        g_channel->InvokeMethod("onInterceptedKey", std::make_unique<flutter::EncodableValue>(map));
+      }
+      return 1; // Block system menu!
+    }
+  }
+  return CallNextHookEx(g_keyboardHook, nCode, wParam, lParam);
+}
+
 }  // namespace
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
@@ -84,9 +133,10 @@ bool FlutterWindow::OnCreate() {
   input_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
       flutter_controller_->engine()->messenger(), "com.crosscontrol/input_channel",
       &flutter::StandardMethodCodec::GetInstance());
+  g_channel = input_channel_.get();
 
   input_channel_->SetMethodCallHandler(
-      [](const flutter::MethodCall<flutter::EncodableValue>& call,
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
          std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
         const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
 
@@ -117,7 +167,15 @@ bool FlutterWindow::OnCreate() {
             GetCursorPos(&pt);
             double dx = GetDoubleValue(*args, "dx", 0.0);
             double dy = GetDoubleValue(*args, "dy", 0.0);
-            SetCursorPos(pt.x + static_cast<int>(dx), pt.y + static_cast<int>(dy));
+            g_accDx += dx;
+            g_accDy += dy;
+            int moveX = static_cast<int>(g_accDx);
+            int moveY = static_cast<int>(g_accDy);
+            g_accDx -= moveX;
+            g_accDy -= moveY;
+            if (moveX != 0 || moveY != 0) {
+              SetCursorPos(pt.x + moveX, pt.y + moveY);
+            }
           }
           result->Success(flutter::EncodableValue(true));
         } else if (call.method_name() == "simulateMouseButton") {
@@ -178,6 +236,47 @@ bool FlutterWindow::OnCreate() {
             }
           }
           result->Success(flutter::EncodableValue(true));
+        } else if (call.method_name() == "confinePointer") {
+          bool enable = false;
+          if (args) {
+            enable = GetBoolValue(*args, "enable", false);
+          }
+          if (enable) {
+            HWND hwnd = flutter_controller_->view()->GetNativeWindow();
+            if (hwnd) {
+              RECT rect;
+              GetClientRect(hwnd, &rect);
+              MapWindowPoints(hwnd, NULL, (LPPOINT)&rect, 2);
+              ClipCursor(&rect);
+            }
+          } else {
+            ClipCursor(NULL);
+          }
+          result->Success(flutter::EncodableValue(true));
+        } else if (call.method_name() == "warpPointer") {
+          if (args) {
+            double x = GetDoubleValue(*args, "x", 0.0);
+            double y = GetDoubleValue(*args, "y", 0.0);
+            SetCursorPos(static_cast<int>(x), static_cast<int>(y));
+          }
+          result->Success(flutter::EncodableValue(true));
+        } else if (call.method_name() == "setLocalInputInterception") {
+          bool enable = false;
+          if (args) {
+            enable = GetBoolValue(*args, "enable", false);
+          }
+          g_isInputInterceptionActive = enable;
+          if (enable && !g_keyboardHook) {
+            g_keyboardHook = SetWindowsHookEx(
+                WH_KEYBOARD_LL,
+                LowLevelKeyboardProc,
+                GetModuleHandle(NULL),
+                0);
+          } else if (!enable && g_keyboardHook) {
+            UnhookWindowsHookEx(g_keyboardHook);
+            g_keyboardHook = NULL;
+          }
+          result->Success(flutter::EncodableValue(true));
         } else {
           result->NotImplemented();
         }
@@ -198,6 +297,14 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  if (g_keyboardHook) {
+    UnhookWindowsHookEx(g_keyboardHook);
+    g_keyboardHook = NULL;
+  }
+  g_isInputInterceptionActive = false;
+  ClipCursor(NULL);
+  g_channel = nullptr;
+
   if (input_channel_) {
     input_channel_ = nullptr;
   }
@@ -223,6 +330,12 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   switch (message) {
+    case WM_SYSKEYDOWN:
+    case WM_SYSKEYUP:
+      if (g_isInputInterceptionActive && wparam == VK_SPACE) {
+        return 0; // Prevent window system menu from opening during control
+      }
+      break;
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;

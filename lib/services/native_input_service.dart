@@ -5,9 +5,54 @@ import 'package:flutter/services.dart';
 class NativeInputService {
   static final NativeInputService _instance = NativeInputService._internal();
   factory NativeInputService() => _instance;
-  NativeInputService._internal();
+  NativeInputService._internal() {
+    _channel.setMethodCallHandler(_handleNativeCall);
+  }
 
   static const MethodChannel _channel = MethodChannel('com.crosscontrol/input_channel');
+
+  /// Callback when native platform intercepts a system-reserved key (e.g. Windows key or Alt+Space on Windows)
+  void Function({required int vk, required bool isDown, required bool isWinKey, required bool alt})? onInterceptedKey;
+
+  Future<dynamic> _handleNativeCall(MethodCall call) async {
+    if (call.method == 'onInterceptedKey') {
+      final args = call.arguments as Map<dynamic, dynamic>?;
+      if (args != null) {
+        final vk = args['vk'] as int? ?? 0;
+        final isDown = args['isDown'] as bool? ?? true;
+        final isWinKey = args['isWinKey'] as bool? ?? false;
+        final alt = args['alt'] as bool? ?? false;
+        onInterceptedKey?.call(vk: vk, isDown: isDown, isWinKey: isWinKey, alt: alt);
+      }
+    }
+  }
+
+  /// Confine pointer to window / control surface bounds
+  Future<void> confinePointer(bool enable) async {
+    try {
+      await _channel.invokeMethod('confinePointer', {'enable': enable});
+    } catch (e) {
+      debugPrint('Error confining pointer: $e');
+    }
+  }
+
+  /// Warp pointer to specific coordinates
+  Future<void> warpPointer(double x, double y) async {
+    try {
+      await _channel.invokeMethod('warpPointer', {'x': x, 'y': y});
+    } catch (e) {
+      debugPrint('Error warping pointer: $e');
+    }
+  }
+
+  /// Enable or disable low-level system key interception (e.g. Windows Start Menu suppression)
+  Future<void> setLocalInputInterception(bool enable) async {
+    try {
+      await _channel.invokeMethod('setLocalInputInterception', {'enable': enable});
+    } catch (e) {
+      debugPrint('Error setting input interception: $e');
+    }
+  }
 
   /// Check whether the app has Accessibility permissions (macOS)
   Future<bool> checkAccessibilityPermission() async {
@@ -109,13 +154,17 @@ class NativeInputService {
     }
   }
 
-  /// Simulate key press or release
+  /// Simulate key press or release with complete modifier states
   Future<void> simulateKey({
     required int keyCode,
     int? windowsVk,
     int? macosVk,
     required bool isDown,
     String? characters,
+    bool meta = false,
+    bool ctrl = false,
+    bool alt = false,
+    bool shift = false,
   }) async {
     try {
       await _channel.invokeMethod('simulateKey', {
@@ -124,6 +173,10 @@ class NativeInputService {
         'macosVk': ?macosVk,
         'isDown': isDown,
         'characters': ?characters,
+        'meta': meta,
+        'ctrl': ctrl,
+        'alt': alt,
+        'shift': shift,
       });
     } catch (e) {
       // Ignore or debug

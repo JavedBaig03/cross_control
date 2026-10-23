@@ -73,12 +73,10 @@ class _HomeScreenState extends State<HomeScreen> {
     await NetworkService().startServer(
       requestApprovalHandler: _handleIncomingConnectionRequest,
       eventHandler: (event) {
-        if (_connectionMode == ConnectionMode.receiver) {
-          if (_receiverKey.currentState != null) {
-            _receiverKey.currentState?.handleIncomingEvent(event);
-          } else {
-            _simulateNativeEventDirectly(event);
-          }
+        if (_receiverKey.currentState != null) {
+          _receiverKey.currentState?.handleIncomingEvent(event);
+        } else {
+          _simulateNativeEventDirectly(event);
         }
       },
       disconnectHandler: (reason) {
@@ -158,6 +156,10 @@ class _HomeScreenState extends State<HomeScreen> {
         macosVk: event.macosVk,
         isDown: event.isDown,
         characters: event.character ?? (event.label.length == 1 ? event.label : null),
+        meta: event.meta,
+        ctrl: event.ctrl,
+        alt: event.alt,
+        shift: event.shift,
       );
     }
   }
@@ -225,9 +227,34 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    setState(() {
-      _statusMessage = 'Sending connection request to $targetName... Waiting for approval...';
-    });
+    // Status listener for rich connection status updates
+    void onStatusChanged() {
+      if (!mounted) return;
+      final status = NetworkService().statusNotifier.value;
+      setState(() {
+        switch (status) {
+          case NetworkConnectionStatus.connecting:
+            _statusMessage = 'Connecting to $targetName over local Wi-Fi...';
+            break;
+          case NetworkConnectionStatus.awaitingApproval:
+            _statusMessage = 'Request sent to $targetName... Awaiting user approval...';
+            break;
+          case NetworkConnectionStatus.connected:
+            _statusMessage = 'Approval received! Initializing remote control pipeline...';
+            break;
+          case NetworkConnectionStatus.remoteControlReady:
+            _statusMessage = 'Remote control verified and ready!';
+            break;
+          case NetworkConnectionStatus.failed:
+            _statusMessage = 'Connection or initialization failed.';
+            break;
+          case NetworkConnectionStatus.idle:
+            break;
+        }
+      });
+    }
+
+    NetworkService().statusNotifier.addListener(onStatusChanged);
 
     try {
       final response = await NetworkService().connectToPeer(
@@ -272,6 +299,7 @@ class _HomeScreenState extends State<HomeScreen> {
       } else {
         _showError(
           response.reason ?? 'Connection request was declined by the remote user.',
+          retryPeer: targetPeer,
         );
       }
     } catch (e) {
@@ -280,12 +308,14 @@ class _HomeScreenState extends State<HomeScreen> {
           _isConnecting = false;
           _statusMessage = null;
         });
-        _showError('Connection error: $e');
+        _showError('Connection error: $e', retryPeer: targetPeer);
       }
+    } finally {
+      NetworkService().statusNotifier.removeListener(onStatusChanged);
     }
   }
 
-  void _showError(String message) {
+  void _showError(String message, {PeerInfo? retryPeer}) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -303,6 +333,14 @@ class _HomeScreenState extends State<HomeScreen> {
           style: const TextStyle(color: AppColors.textSecondary, fontSize: 14, height: 1.4),
         ),
         actions: [
+          if (retryPeer != null)
+            TextButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                _initiateConnection(retryPeer);
+              },
+              child: const Text('Retry', style: TextStyle(color: AppColors.cyan, fontWeight: FontWeight.bold)),
+            ),
           ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(),
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.cyan),
