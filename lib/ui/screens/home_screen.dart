@@ -74,7 +74,11 @@ class _HomeScreenState extends State<HomeScreen> {
       requestApprovalHandler: _handleIncomingConnectionRequest,
       eventHandler: (event) {
         if (_connectionMode == ConnectionMode.receiver) {
-          _receiverKey.currentState?.handleIncomingEvent(event);
+          if (_receiverKey.currentState != null) {
+            _receiverKey.currentState?.handleIncomingEvent(event);
+          } else {
+            _simulateNativeEventDirectly(event);
+          }
         }
       },
       disconnectHandler: (reason) {
@@ -127,6 +131,33 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     return completer.future;
+  }
+
+  void _simulateNativeEventDirectly(ControlEvent event) {
+    if (event is MouseMoveEvent) {
+      NativeInputService().simulateMouseMove(
+        dx: event.dx,
+        dy: event.dy,
+        x: event.x,
+        y: event.y,
+      );
+    } else if (event is MouseButtonEvent) {
+      NativeInputService().simulateMouseButton(
+        button: event.button,
+        isDown: event.isDown,
+      );
+    } else if (event is MouseScrollEvent) {
+      NativeInputService().simulateMouseScroll(
+        dx: event.dx,
+        dy: event.dy,
+      );
+    } else if (event is KeyEventData) {
+      NativeInputService().simulateKey(
+        keyCode: event.keyCode,
+        isDown: event.isDown,
+        characters: event.label.length == 1 ? event.label : null,
+      );
+    }
   }
 
   /// Initiates connection to another laptop using entered key (Section 1 & 2)

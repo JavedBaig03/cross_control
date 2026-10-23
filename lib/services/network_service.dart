@@ -76,74 +76,61 @@ class NetworkService {
       client.setOption(SocketOption.tcpNoDelay, true);
     } catch (_) {}
 
-    final lineStream = client
-        .cast<List<int>>()
-        .transform(utf8.decoder)
-        .transform(const LineSplitter());
-
-    StreamSubscription<String>? handshakeSub;
-
-    handshakeSub = lineStream.listen((line) async {
-      if (line.trim().isEmpty) return;
-
-      try {
-        final data = jsonDecode(line) as Map<String, dynamic>;
-        final type = data['type'] as String?;
-
-        if (type == 'connect_request') {
-          final request = ConnectionRequest.fromMap(data);
-
-          // Ask receiving user for approval
-          final bool accepted = onRequestApproval != null
-              ? await onRequestApproval!(request)
-              : false;
-
-          if (accepted) {
-            final screenSize = await NativeInputService().getScreenSize();
-            final response = ConnectionResponse(
-              accepted: true,
-              screenWidth: screenSize.width,
-              screenHeight: screenSize.height,
-            );
-
-            client.writeln(jsonEncode(response.toMap()));
-            await client.flush();
-
-            // Cancel handshake listener and attach regular session stream
-            await handshakeSub?.cancel();
-            _attachReceiverSession(client);
-          } else {
-            final response = ConnectionResponse(
-              accepted: false,
-              reason: 'Connection request was declined by the user',
-            );
-            client.writeln(jsonEncode(response.toMap()));
-            await client.flush();
-            await client.close();
-          }
-        }
-      } catch (e) {
-        debugPrint('Handshake error: $e');
-        client.close();
-      }
-    }, onError: (err) {
-      client.close();
-    });
-  }
-
-  /// Attach receiver session to active socket
-  void _attachReceiverSession(Socket socket) {
-    _activeSocket = socket;
+    _activeSocket = client;
     eventsReceivedNotifier.value = 0;
     eventsSentNotifier.value = 0;
+    bool isHandshakeApproved = false;
 
-    _socketSubscription = socket
+    // Single stream listener for the entire lifetime of this socket connection
+    _socketSubscription = client
         .cast<List<int>>()
         .transform(utf8.decoder)
         .transform(const LineSplitter())
-        .listen((line) {
+        .listen((line) async {
       if (line.trim().isEmpty) return;
 
+      if (!isHandshakeApproved) {
+        try {
+          final data = jsonDecode(line) as Map<String, dynamic>;
+          final type = data['type'] as String?;
+
+          if (type == 'connect_request') {
+            final request = ConnectionRequest.fromMap(data);
+
+            // Ask receiving user for approval
+            final bool accepted = onRequestApproval != null
+                ? await onRequestApproval!(request)
+                : false;
+
+            if (accepted) {
+              isHandshakeApproved = true;
+              final screenSize = await NativeInputService().getScreenSize();
+              final response = ConnectionResponse(
+                accepted: true,
+                screenWidth: screenSize.width,
+                screenHeight: screenSize.height,
+              );
+
+              client.writeln(jsonEncode(response.toMap()));
+              await client.flush();
+            } else {
+              final response = ConnectionResponse(
+                accepted: false,
+                reason: 'Connection request was declined by the user',
+              );
+              client.writeln(jsonEncode(response.toMap()));
+              await client.flush();
+              disconnect(reason: 'Connection request declined');
+            }
+          }
+        } catch (e) {
+          debugPrint('Handshake error on server: $e');
+          disconnect(reason: 'Handshake parse error: $e');
+        }
+        return;
+      }
+
+      // Handshake is approved: stream incoming ControlEvents
       try {
         final event = ControlEvent.deserialize(line);
         if (event == null) return;
@@ -151,7 +138,7 @@ class NetworkService {
         eventsReceivedNotifier.value++;
 
         if (event is PingEvent) {
-          // Respond with Pong immediately
+          // Respond with Pong immediately for RTT measurement
           final pong = PongEvent(timestamp: event.timestamp);
           sendEvent(pong);
           return;
@@ -199,12 +186,90 @@ class NetworkService {
         socket.setOption(SocketOption.tcpNoDelay, true);
       } catch (_) {}
 
-      final lineStream = socket
+      _activeSocket = socket;
+      eventsReceivedNotifier.value = 0;
+      eventsSentNotifier.value = 0;
+      bool isHandshakeComplete = false;
+
+      // Single stream listener for the entire lifetime of this socket connection
+      _socketSubscription = socket
           .cast<List<int>>()
           .transform(utf8.decoder)
-          .transform(const LineSplitter());
+          .transform(const LineSplitter())
+          .listen((line) {
+        if (line.trim().isEmpty) return;
 
-      StreamSubscription<String>? handshakeSub;
+        if (!isHandshakeComplete) {
+          try {
+            final data = jsonDecode(line) as Map<String, dynamic>;
+            final type = data['type'] as String?;
+
+            if (type == 'connect_response') {
+              final response = ConnectionResponse.fromMap(data);
+
+              if (response.accepted) {
+                isHandshakeComplete = true;
+                _startPingTimer();
+                if (!completer.isCompleted) completer.complete(response);
+              } else {
+                if (!completer.isCompleted) completer.complete(response);
+                disconnect(reason: response.reason ?? 'Connection declined by remote laptop');
+              }
+            } else {
+              if (!completer.isCompleted) {
+                completer.complete(ConnectionResponse(
+                  accepted: false,
+                  reason: 'Unexpected response during handshake',
+                ));
+              }
+              disconnect(reason: 'Unexpected handshake response');
+            }
+          } catch (e) {
+            if (!completer.isCompleted) {
+              completer.complete(ConnectionResponse(
+                accepted: false,
+                reason: 'Malformed handshake response: $e',
+              ));
+            }
+            disconnect(reason: 'Malformed handshake response');
+          }
+          return;
+        }
+
+        // Handshake already approved: stream incoming ControlEvents
+        try {
+          final event = ControlEvent.deserialize(line);
+          if (event == null) return;
+
+          eventsReceivedNotifier.value++;
+
+          if (event is PongEvent) {
+            final now = DateTime.now().millisecondsSinceEpoch;
+            final rtt = now - event.timestamp;
+            latencyMsNotifier.value = rtt.clamp(0, 999);
+            return;
+          }
+
+          if (event is DisconnectEvent) {
+            disconnect(reason: event.reason ?? 'Remote user disconnected');
+            return;
+          }
+
+          onEventReceived?.call(event);
+        } catch (e) {
+          debugPrint('Error parsing incoming event: $e');
+        }
+      }, onDone: () {
+        disconnect(reason: 'Connection closed by remote system');
+      }, onError: (err) {
+        if (!completer.isCompleted) {
+          completer.complete(ConnectionResponse(
+            accepted: false,
+            reason: 'Connection error: $err',
+          ));
+        }
+        disconnect(reason: 'Socket error: $err');
+      });
 
       // Send connection request
       final request = ConnectionRequest(
@@ -216,44 +281,6 @@ class NetworkService {
 
       socket.writeln(jsonEncode(request.toMap()));
       await socket.flush();
-
-      // Listen for approval or rejection response
-      handshakeSub = lineStream.listen((line) async {
-        if (line.trim().isEmpty) return;
-
-        try {
-          final data = jsonDecode(line) as Map<String, dynamic>;
-          final type = data['type'] as String?;
-
-          if (type == 'connect_response') {
-            final response = ConnectionResponse.fromMap(data);
-            await handshakeSub?.cancel();
-
-            if (response.accepted) {
-              _attachControllerSession(socket);
-              if (!completer.isCompleted) completer.complete(response);
-            } else {
-              await socket.close();
-              if (!completer.isCompleted) completer.complete(response);
-            }
-          }
-        } catch (e) {
-          await socket.close();
-          if (!completer.isCompleted) {
-            completer.complete(ConnectionResponse(
-              accepted: false,
-              reason: 'Malformed handshake response',
-            ));
-          }
-        }
-      }, onError: (err) {
-        if (!completer.isCompleted) {
-          completer.complete(ConnectionResponse(
-            accepted: false,
-            reason: 'Connection error: $err',
-          ));
-        }
-      });
     } catch (e) {
       if (!completer.isCompleted) {
         completer.complete(ConnectionResponse(
@@ -266,48 +293,8 @@ class NetworkService {
     return completer.future;
   }
 
-  /// Attach controller session to active socket
-  void _attachControllerSession(Socket socket) {
-    _activeSocket = socket;
-    eventsReceivedNotifier.value = 0;
-    eventsSentNotifier.value = 0;
-
-    _socketSubscription = socket
-        .cast<List<int>>()
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen((line) {
-      if (line.trim().isEmpty) return;
-
-      try {
-        final event = ControlEvent.deserialize(line);
-        if (event == null) return;
-
-        eventsReceivedNotifier.value++;
-
-        if (event is PongEvent) {
-          final now = DateTime.now().millisecondsSinceEpoch;
-          final rtt = now - event.timestamp;
-          latencyMsNotifier.value = rtt.clamp(0, 999);
-          return;
-        }
-
-        if (event is DisconnectEvent) {
-          disconnect(reason: event.reason ?? 'Remote user disconnected');
-          return;
-        }
-
-        onEventReceived?.call(event);
-      } catch (e) {
-        debugPrint('Error parsing incoming event: $e');
-      }
-    }, onDone: () {
-      disconnect(reason: 'Connection closed by remote system');
-    }, onError: (err) {
-      disconnect(reason: 'Socket error: $err');
-    });
-
-    // Start periodic ping/latency measurement
+  void _startPingTimer() {
+    _pingTimer?.cancel();
     _pingTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) {
       _sendPing();
     });
