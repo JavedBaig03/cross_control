@@ -1,6 +1,7 @@
 #include "flutter_window.h"
 
 #include <optional>
+#include <algorithm>
 #include <windows.h>
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
@@ -193,8 +194,12 @@ bool FlutterWindow::OnCreate() {
                 int minY = GetSystemMetrics(SM_YVIRTUALSCREEN);
                 int maxX = minX + GetSystemMetrics(SM_CXVIRTUALSCREEN) - 1;
                 int maxY = minY + GetSystemMetrics(SM_CYVIRTUALSCREEN) - 1;
-                int targetX = (std::max)(minX, (std::min)(maxX, pt.x + moveX));
-                int targetY = (std::max)(minY, (std::min)(maxY, pt.y + moveY));
+                int targetX = static_cast<int>(pt.x) + moveX;
+                int targetY = static_cast<int>(pt.y) + moveY;
+                if (targetX < minX) targetX = minX;
+                if (targetX > maxX) targetX = maxX;
+                if (targetY < minY) targetY = minY;
+                if (targetY > maxY) targetY = maxY;
                 SetCursorPos(targetX, targetY);
               }
             } else {
