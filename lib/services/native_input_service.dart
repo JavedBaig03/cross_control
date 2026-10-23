@@ -112,14 +112,18 @@ class NativeInputService {
   /// Simulate key press or release
   Future<void> simulateKey({
     required int keyCode,
+    int? windowsVk,
+    int? macosVk,
     required bool isDown,
     String? characters,
   }) async {
     try {
       await _channel.invokeMethod('simulateKey', {
         'keyCode': keyCode,
+        'windowsVk': ?windowsVk,
+        'macosVk': ?macosVk,
         'isDown': isDown,
-        if (characters != null && characters.isNotEmpty) 'characters': characters,
+        'characters': ?characters,
       });
     } catch (e) {
       // Ignore or debug

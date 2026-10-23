@@ -56,6 +56,9 @@ abstract class ControlEvent {
         case 'k':
           return KeyEventData(
             keyCode: map['code'] as int? ?? 0,
+            windowsVk: map['wvk'] as int? ?? map['code'] as int? ?? 0,
+            macosVk: map['mvk'] as int? ?? map['code'] as int? ?? 0,
+            character: map['ch'] as String?,
             label: map['lbl'] as String? ?? '',
             isDown: map['down'] as bool? ?? true,
             meta: map['m'] as bool? ?? false,
@@ -156,6 +159,9 @@ class MouseScrollEvent extends ControlEvent {
 
 class KeyEventData extends ControlEvent {
   final int keyCode;
+  final int windowsVk;
+  final int macosVk;
+  final String? character;
   final String label;
   final bool isDown;
   final bool meta;
@@ -165,6 +171,9 @@ class KeyEventData extends ControlEvent {
 
   KeyEventData({
     required this.keyCode,
+    int? windowsVk,
+    int? macosVk,
+    this.character,
     required this.label,
     required this.isDown,
     this.meta = false,
@@ -172,12 +181,17 @@ class KeyEventData extends ControlEvent {
     this.alt = false,
     this.shift = false,
     super.timestamp,
-  }) : super(type: EventType.keyEvent);
+  })  : windowsVk = windowsVk ?? keyCode,
+        macosVk = macosVk ?? keyCode,
+        super(type: EventType.keyEvent);
 
   @override
   Map<String, dynamic> toMap() => {
         't': 'k',
         'code': keyCode,
+        'wvk': windowsVk,
+        'mvk': macosVk,
+        'ch': ?character,
         'lbl': label,
         'down': isDown,
         'm': meta,

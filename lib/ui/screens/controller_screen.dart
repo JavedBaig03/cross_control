@@ -1,9 +1,9 @@
-import 'dart:io';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../models/control_events.dart';
 import '../../models/peer_info.dart';
+import '../../services/key_mapping_service.dart';
 import '../../services/network_service.dart';
 import '../../services/storage_service.dart';
 import '../theme/app_colors.dart';
@@ -49,21 +49,15 @@ class _ControllerScreenState extends State<ControllerScreen> {
     super.dispose();
   }
 
-  /// Check for Command + Control + Q (macOS) or Ctrl + Alt + Q (Windows)
+  /// Check for Control + Option + P (macOS) or Ctrl + Alt + P (Windows)
   bool _isPauseResumeShortcut(KeyEvent event) {
     if (event is! KeyDownEvent) return false;
 
-    if (Platform.isMacOS) {
-      final isMeta = HardwareKeyboard.instance.isMetaPressed;
-      final isCtrl = HardwareKeyboard.instance.isControlPressed;
-      final isQ = event.logicalKey == LogicalKeyboardKey.keyQ;
-      return isMeta && isCtrl && isQ;
-    } else {
-      final isCtrl = HardwareKeyboard.instance.isControlPressed;
-      final isAlt = HardwareKeyboard.instance.isAltPressed;
-      final isQ = event.logicalKey == LogicalKeyboardKey.keyQ;
-      return (isCtrl && isAlt && isQ) || (HardwareKeyboard.instance.isMetaPressed && isCtrl && isQ);
-    }
+    final isCtrl = HardwareKeyboard.instance.isControlPressed;
+    final isAlt = HardwareKeyboard.instance.isAltPressed;
+    final isP = event.logicalKey == LogicalKeyboardKey.keyP;
+
+    return isCtrl && isAlt && isP;
   }
 
   void _togglePauseControl() {
@@ -79,25 +73,30 @@ class _ControllerScreenState extends State<ControllerScreen> {
     }
   }
 
-  void _handleKeyEvent(KeyEvent event) {
+  KeyEventResult _onFocusKeyEvent(FocusNode node, KeyEvent event) {
     // Intercept pause/resume shortcut first
     if (_isPauseResumeShortcut(event)) {
       _togglePauseControl();
-      return;
+      return KeyEventResult.handled;
     }
 
-    // If control is paused, do NOT forward key to remote laptop!
-    if (!_isControlActive) return;
+    // If control is paused, allow local OS/apps to process keys normally
+    if (!_isControlActive) {
+      return KeyEventResult.ignored;
+    }
 
     final isDown = event is KeyDownEvent || event is KeyRepeatEvent;
-    final int keyCode = _extractKeyCode(event.physicalKey);
+    final codes = KeyMappingService().resolveNativeCodes(event);
 
     setState(() {
       _lastKeyStroke = '${event.logicalKey.keyLabel} (${isDown ? 'Down' : 'Up'})';
     });
 
     final keyData = KeyEventData(
-      keyCode: keyCode,
+      keyCode: codes.windowsVk,
+      windowsVk: codes.windowsVk,
+      macosVk: codes.macosVk,
+      character: event.character,
       label: event.logicalKey.keyLabel,
       isDown: isDown,
       meta: HardwareKeyboard.instance.isMetaPressed,
@@ -107,12 +106,9 @@ class _ControllerScreenState extends State<ControllerScreen> {
     );
 
     NetworkService().sendEvent(keyData);
-  }
 
-  int _extractKeyCode(PhysicalKeyboardKey physicalKey) {
-    // Basic mapping for virtual key codes
-    final id = physicalKey.usbHidUsage;
-    return id & 0xFFFF;
+    // CRITICAL: Consume the event so the local laptop does not trigger local actions/typing
+    return KeyEventResult.handled;
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
@@ -175,10 +171,13 @@ class _ControllerScreenState extends State<ControllerScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: KeyboardListener(
+      body: Focus(
         focusNode: _focusNode,
         autofocus: true,
-        onKeyEvent: _handleKeyEvent,
+        canRequestFocus: true,
+        descendantsAreFocusable: false,
+        descendantsAreTraversable: false,
+        onKeyEvent: _onFocusKeyEvent,
         child: Column(
           children: [
             // Top HUD Control Bar
@@ -189,19 +188,22 @@ class _ControllerScreenState extends State<ControllerScreen> {
               child: Stack(
                 children: [
                   // Interactive Pointer & Touch Capture Canvas
-                  Listener(
-                    behavior: HitTestBehavior.opaque,
-                    onPointerMove: _handlePointerMove,
-                    onPointerDown: _handlePointerDown,
-                    onPointerUp: _handlePointerUp,
-                    onPointerSignal: _handlePointerSignal,
-                    child: Container(
-                      width: double.infinity,
-                      height: double.infinity,
-                      color: _isControlActive
-                          ? AppColors.surface.withOpacity(0.4)
-                          : AppColors.background,
-                      child: _buildControlSurfaceContent(shortcutText),
+                  MouseRegion(
+                    cursor: _isControlActive ? SystemMouseCursors.none : SystemMouseCursors.basic,
+                    child: Listener(
+                      behavior: HitTestBehavior.opaque,
+                      onPointerMove: _handlePointerMove,
+                      onPointerDown: _handlePointerDown,
+                      onPointerUp: _handlePointerUp,
+                      onPointerSignal: _handlePointerSignal,
+                      child: Container(
+                        width: double.infinity,
+                        height: double.infinity,
+                        color: _isControlActive
+                            ? AppColors.surface.withOpacity(0.4)
+                            : AppColors.background,
+                        child: _buildControlSurfaceContent(shortcutText),
+                      ),
                     ),
                   ),
 

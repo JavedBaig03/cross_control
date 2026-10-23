@@ -150,16 +150,18 @@ class MainFlutterWindow: NSWindow {
   }
 
   private func handleKey(args: [String: Any]) {
-    let keyCode = args["keyCode"] as? Int ?? 0
+    let macosVk = args["macosVk"] as? Int ?? args["keyCode"] as? Int ?? 0
     let isDown = args["isDown"] as? Bool ?? true
     let characters = args["characters"] as? String
 
     if let keyEvent = CGEvent(
       keyboardEventSource: nil,
-      virtualKey: CGKeyCode(keyCode),
+      virtualKey: CGKeyCode(macosVk),
       keyDown: isDown
     ) {
-      if let chars = characters, !chars.isEmpty && isDown {
+      // Non-character control keys: Delete/Backspace (51), Return (36), Tab (48), Esc (53), ForwardDel (117), Arrows (123-126), Modifiers (55-62)
+      let nonCharKeys: Set<Int> = [51, 36, 48, 53, 117, 123, 124, 125, 126, 55, 56, 57, 58, 59, 60, 61, 62]
+      if let chars = characters, !chars.isEmpty && isDown && !nonCharKeys.contains(macosVk) {
         let utf16Chars = Array(chars.utf16)
         keyEvent.keyboardSetUnicodeString(stringLength: utf16Chars.count, unicodeString: utf16Chars)
       }

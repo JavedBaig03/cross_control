@@ -99,8 +99,10 @@ class ReceiverScreenState extends State<ReceiverScreen> {
       });
       NativeInputService().simulateKey(
         keyCode: event.keyCode,
+        windowsVk: event.windowsVk,
+        macosVk: event.macosVk,
         isDown: event.isDown,
-        characters: event.label.length == 1 ? event.label : null,
+        characters: event.character ?? (event.label.length == 1 ? event.label : null),
       );
     }
   }

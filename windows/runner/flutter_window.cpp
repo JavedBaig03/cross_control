@@ -48,6 +48,15 @@ bool GetBoolValue(const flutter::EncodableMap& map, const std::string& key, bool
   return defaultValue;
 }
 
+std::string GetStringValue(const flutter::EncodableMap& map, const std::string& key, const std::string& defaultValue = "") {
+  auto it = map.find(flutter::EncodableValue(key));
+  if (it == map.end()) return defaultValue;
+  if (const auto* val = std::get_if<std::string>(&it->second)) {
+    return *val;
+  }
+  return defaultValue;
+}
+
 }  // namespace
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
@@ -140,16 +149,33 @@ bool FlutterWindow::OnCreate() {
           result->Success(flutter::EncodableValue(true));
         } else if (call.method_name() == "simulateKey") {
           if (args) {
-            int keyCode = GetIntValue(*args, "keyCode", 0);
-            bool isDown = GetBoolValue(*args, "isDown", true);
-
-            INPUT input = {0};
-            input.type = INPUT_KEYBOARD;
-            input.ki.wVk = static_cast<WORD>(keyCode);
-            if (!isDown) {
-              input.ki.dwFlags = KEYEVENTF_KEYUP;
+            int windowsVk = GetIntValue(*args, "windowsVk", 0);
+            if (windowsVk == 0) {
+              windowsVk = GetIntValue(*args, "keyCode", 0);
             }
-            SendInput(1, &input, sizeof(INPUT));
+            bool isDown = GetBoolValue(*args, "isDown", true);
+            std::string characters = GetStringValue(*args, "characters", "");
+
+            if (windowsVk != 0) {
+              INPUT input = {0};
+              input.type = INPUT_KEYBOARD;
+              input.ki.wVk = static_cast<WORD>(windowsVk);
+              input.ki.wScan = static_cast<WORD>(MapVirtualKeyA(windowsVk, MAPVK_VK_TO_VSC));
+              input.ki.dwFlags = isDown ? 0 : KEYEVENTF_KEYUP;
+
+              if (windowsVk == VK_LEFT || windowsVk == VK_UP || windowsVk == VK_RIGHT || windowsVk == VK_DOWN ||
+                  windowsVk == VK_HOME || windowsVk == VK_END || windowsVk == VK_PRIOR || windowsVk == VK_NEXT ||
+                  windowsVk == VK_INSERT || windowsVk == VK_DELETE || windowsVk == VK_RCONTROL || windowsVk == VK_RMENU) {
+                input.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
+              }
+              SendInput(1, &input, sizeof(INPUT));
+            } else if (!characters.empty()) {
+              INPUT input = {0};
+              input.type = INPUT_KEYBOARD;
+              input.ki.dwFlags = KEYEVENTF_UNICODE | (isDown ? 0 : KEYEVENTF_KEYUP);
+              input.ki.wScan = static_cast<WCHAR>(static_cast<unsigned char>(characters[0]));
+              SendInput(1, &input, sizeof(INPUT));
+            }
           }
           result->Success(flutter::EncodableValue(true));
         } else {

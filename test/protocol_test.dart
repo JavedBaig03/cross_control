@@ -1,6 +1,8 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:cross_control/models/control_events.dart';
 import 'package:cross_control/services/storage_service.dart';
+import 'package:cross_control/services/key_mapping_service.dart';
 
 void main() {
   group('ControlEvent Protocol Tests', () {
@@ -46,6 +48,9 @@ void main() {
         isDown: true,
         ctrl: true,
         meta: false,
+        windowsVk: 0x41,
+        macosVk: 0,
+        character: 'A',
       );
       final json = event.serialize();
       final restored = ControlEvent.deserialize(json);
@@ -57,6 +62,9 @@ void main() {
       expect(k.isDown, true);
       expect(k.ctrl, true);
       expect(k.meta, false);
+      expect(k.windowsVk, 0x41);
+      expect(k.macosVk, 0);
+      expect(k.character, 'A');
     });
 
     test('PauseEvent and ResumeEvent serialization', () {
@@ -67,6 +75,34 @@ void main() {
       final resume = ResumeEvent();
       final restoredResume = ControlEvent.deserialize(resume.serialize()) as ResumeEvent;
       expect(restoredResume.type, EventType.resumeControl);
+    });
+
+    test('KeyMappingService maps Backspace and keys accurately for Mac and Windows', () {
+      final mapper = KeyMappingService();
+
+      // Backspace: Win32 VK_BACK is 0x08, macOS kVK_Delete is 51 (NOT 42)
+      final backspace = mapper.resolve(
+        LogicalKeyboardKey.backspace,
+        PhysicalKeyboardKey.backspace,
+      );
+      expect(backspace.windowsVk, 0x08);
+      expect(backspace.macosVk, 51); // 51 is kVK_Delete, 42 was kVK_ANSI_Backslash causing the '\' bug
+
+      // Return/Enter: Win32 VK_RETURN is 0x0D, macOS kVK_Return is 36
+      final enter = mapper.resolve(
+        LogicalKeyboardKey.enter,
+        PhysicalKeyboardKey.enter,
+      );
+      expect(enter.windowsVk, 0x0D);
+      expect(enter.macosVk, 36);
+
+      // Key A: Win32 VK 0x41, macOS kVK_ANSI_A is 0
+      final keyA = mapper.resolve(
+        LogicalKeyboardKey.keyA,
+        PhysicalKeyboardKey.keyA,
+      );
+      expect(keyA.windowsVk, 0x41);
+      expect(keyA.macosVk, 0);
     });
 
     test('Handshake Request and Response mapping', () {

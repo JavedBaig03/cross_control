@@ -22,17 +22,17 @@ class StorageService {
 
   String get shortcutLabel {
     if (Platform.isMacOS) {
-      return '⌘ + ⌃ + Q';
+      return '⌃ + ⌥ + P';
     } else {
-      return 'Ctrl + Alt + Q';
+      return 'Ctrl + Alt + P';
     }
   }
 
   String get fullShortcutDescription {
     if (Platform.isMacOS) {
-      return 'Command + Control + Q';
+      return 'Control + Option + P';
     } else {
-      return 'Control + Alt + Q';
+      return 'Control + Alt + P';
     }
   }
 }
