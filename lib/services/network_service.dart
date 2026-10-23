@@ -48,6 +48,10 @@ class NetworkService {
 
   Timer? _pingTimer;
   int _lastPingSentTimestamp = 0;
+  int _sentEventsCount = 0;
+  int _lastSentNotifierUpdate = 0;
+  int _receivedEventsCount = 0;
+  int _lastReceivedNotifierUpdate = 0;
 
   bool get isConnected => _activeSocket != null;
 
@@ -189,7 +193,12 @@ class NetworkService {
         final event = ControlEvent.deserialize(line);
         if (event == null) return;
 
-        eventsReceivedNotifier.value++;
+        _receivedEventsCount++;
+        final now = DateTime.now().millisecondsSinceEpoch;
+        if (now - _lastReceivedNotifierUpdate > 250) {
+          _lastReceivedNotifierUpdate = now;
+          eventsReceivedNotifier.value = _receivedEventsCount;
+        }
 
         // Handle pipeline readiness handshake
         if (event is ReadyInitEvent) {
@@ -327,7 +336,12 @@ class NetworkService {
           final event = ControlEvent.deserialize(line);
           if (event == null) return;
 
-          eventsReceivedNotifier.value++;
+          _receivedEventsCount++;
+          final now = DateTime.now().millisecondsSinceEpoch;
+          if (now - _lastReceivedNotifierUpdate > 250) {
+            _lastReceivedNotifierUpdate = now;
+            eventsReceivedNotifier.value = _receivedEventsCount;
+          }
 
           if (event is ReadyAckEvent) {
             if (_readyAckCompleter != null && !_readyAckCompleter!.isCompleted) {
@@ -408,7 +422,12 @@ class NetworkService {
     if (_activeSocket == null) return;
     try {
       _activeSocket?.writeln(event.serialize());
-      eventsSentNotifier.value++;
+      _sentEventsCount++;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - _lastSentNotifierUpdate > 250) {
+        _lastSentNotifierUpdate = now;
+        eventsSentNotifier.value = _sentEventsCount;
+      }
     } catch (e) {
       debugPrint('Error sending event: $e');
     }
@@ -441,6 +460,10 @@ class NetworkService {
         _serverDisconnectHandler?.call(reason);
       }
       _isClientMode = false;
+      _sentEventsCount = 0;
+      _receivedEventsCount = 0;
+      eventsSentNotifier.value = 0;
+      eventsReceivedNotifier.value = 0;
       statusNotifier.value = NetworkConnectionStatus.idle;
     }
   }

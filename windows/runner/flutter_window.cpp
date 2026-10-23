@@ -180,8 +180,6 @@ bool FlutterWindow::OnCreate() {
             bool hasExplicitCoords = (args->find(flutter::EncodableValue("x")) != args->end());
 
             if (!hasExplicitCoords || dx != 0.0 || dy != 0.0) {
-              POINT pt;
-              GetCursorPos(&pt);
               g_accDx += dx;
               g_accDy += dy;
               int moveX = static_cast<int>(g_accDx);
@@ -190,17 +188,12 @@ bool FlutterWindow::OnCreate() {
               g_accDy -= moveY;
 
               if (moveX != 0 || moveY != 0) {
-                int minX = GetSystemMetrics(SM_XVIRTUALSCREEN);
-                int minY = GetSystemMetrics(SM_YVIRTUALSCREEN);
-                int maxX = minX + GetSystemMetrics(SM_CXVIRTUALSCREEN) - 1;
-                int maxY = minY + GetSystemMetrics(SM_CYVIRTUALSCREEN) - 1;
-                int targetX = static_cast<int>(pt.x) + moveX;
-                int targetY = static_cast<int>(pt.y) + moveY;
-                if (targetX < minX) targetX = minX;
-                if (targetX > maxX) targetX = maxX;
-                if (targetY < minY) targetY = minY;
-                if (targetY > maxY) targetY = maxY;
-                SetCursorPos(targetX, targetY);
+                INPUT input = {0};
+                input.type = INPUT_MOUSE;
+                input.mi.dwFlags = MOUSEEVENTF_MOVE;
+                input.mi.dx = moveX;
+                input.mi.dy = moveY;
+                SendInput(1, &input, sizeof(INPUT));
               }
             } else {
               double x = GetDoubleValue(*args, "x", -1.0);

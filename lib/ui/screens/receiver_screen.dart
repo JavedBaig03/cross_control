@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../models/control_events.dart';
@@ -43,8 +44,25 @@ class ReceiverScreenState extends State<ReceiverScreen> {
     }
   }
 
+  Timer? _uiThrottleTimer;
+  bool _uiNeedsUpdate = false;
+
+  void _scheduleUiUpdate() {
+    _uiNeedsUpdate = true;
+    if (_uiThrottleTimer == null || !_uiThrottleTimer!.isActive) {
+      _uiThrottleTimer = Timer(const Duration(milliseconds: 200), () {
+        if (mounted && _uiNeedsUpdate) {
+          setState(() {
+            _uiNeedsUpdate = false;
+          });
+        }
+      });
+    }
+  }
+
   @override
   void dispose() {
+    _uiThrottleTimer?.cancel();
     NativeInputService().simulateMouseButton(button: 0, isDown: false);
     NativeInputService().simulateMouseButton(button: 1, isDown: false);
     super.dispose();
@@ -53,61 +71,54 @@ class ReceiverScreenState extends State<ReceiverScreen> {
   /// Called whenever a ControlEvent is received from the network
   void handleIncomingEvent(ControlEvent event) {
     if (event is PauseEvent) {
-      setState(() {
-        _isRemotePaused = event.isPaused;
-        _lastEventDescription = event.isPaused ? 'Remote control paused' : 'Remote control resumed';
-      });
+      _isRemotePaused = event.isPaused;
+      _lastEventDescription = event.isPaused ? 'Remote control paused' : 'Remote control resumed';
       if (event.isPaused) {
         NativeInputService().simulateMouseButton(button: 0, isDown: false);
         NativeInputService().simulateMouseButton(button: 1, isDown: false);
       }
+      setState(() {});
       return;
     }
 
     if (event is ResumeEvent) {
-      setState(() {
-        _isRemotePaused = false;
-        _lastEventDescription = 'Remote control resumed';
-      });
+      _isRemotePaused = false;
+      _lastEventDescription = 'Remote control resumed';
+      setState(() {});
       return;
     }
 
     if (_isRemotePaused) return;
 
     if (event is MouseMoveEvent) {
-      setState(() {
-        _mouseMoveCount++;
-        _lastEventDescription = 'Mouse delta: (${event.dx.toStringAsFixed(1)}, ${event.dy.toStringAsFixed(1)})';
-      });
+      // 1. Simulate mouse movement IMMEDIATELY with zero UI thread overhead
       NativeInputService().simulateMouseMove(
         dx: event.dx,
         dy: event.dy,
         x: event.x,
         y: event.y,
       );
+      // 2. Schedule throttled UI counter update
+      _mouseMoveCount++;
+      _lastEventDescription = 'Mouse delta: (${event.dx.toStringAsFixed(1)}, ${event.dy.toStringAsFixed(1)})';
+      _scheduleUiUpdate();
     } else if (event is MouseButtonEvent) {
-      setState(() {
-        _clickCount++;
-        _lastEventDescription = 'Button ${event.button == 0 ? "Left" : (event.button == 1 ? "Right" : "Middle")} ${event.isDown ? "Down" : "Up"}';
-      });
       NativeInputService().simulateMouseButton(
         button: event.button,
         isDown: event.isDown,
       );
+      _clickCount++;
+      _lastEventDescription = 'Button ${event.button == 0 ? "Left" : (event.button == 1 ? "Right" : "Middle")} ${event.isDown ? "Down" : "Up"}';
+      _scheduleUiUpdate();
     } else if (event is MouseScrollEvent) {
-      setState(() {
-        _scrollCount++;
-        _lastEventDescription = 'Scroll (${event.dx.toStringAsFixed(0)}, ${event.dy.toStringAsFixed(0)})';
-      });
       NativeInputService().simulateMouseScroll(
         dx: event.dx,
         dy: event.dy,
       );
+      _scrollCount++;
+      _lastEventDescription = 'Scroll (${event.dx.toStringAsFixed(0)}, ${event.dy.toStringAsFixed(0)})';
+      _scheduleUiUpdate();
     } else if (event is KeyEventData) {
-      setState(() {
-        _keyCount++;
-        _lastEventDescription = 'Key: "${event.label}" ${event.isDown ? "Down" : "Up"}';
-      });
       NativeInputService().simulateKey(
         keyCode: event.keyCode,
         windowsVk: event.windowsVk,
@@ -119,6 +130,9 @@ class ReceiverScreenState extends State<ReceiverScreen> {
         alt: event.alt,
         shift: event.shift,
       );
+      _keyCount++;
+      _lastEventDescription = 'Key: "${event.label}" ${event.isDown ? "Down" : "Up"}';
+      _scheduleUiUpdate();
     }
   }
 
