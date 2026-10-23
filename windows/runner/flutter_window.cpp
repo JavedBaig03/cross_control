@@ -7,6 +7,49 @@
 
 #include "flutter/generated_plugin_registrant.h"
 
+namespace {
+
+double GetDoubleValue(const flutter::EncodableMap& map, const std::string& key, double defaultValue = 0.0) {
+  auto it = map.find(flutter::EncodableValue(key));
+  if (it == map.end()) return defaultValue;
+  if (const auto* val = std::get_if<double>(&it->second)) {
+    return *val;
+  }
+  if (const auto* val = std::get_if<int32_t>(&it->second)) {
+    return static_cast<double>(*val);
+  }
+  if (const auto* val = std::get_if<int64_t>(&it->second)) {
+    return static_cast<double>(*val);
+  }
+  return defaultValue;
+}
+
+int GetIntValue(const flutter::EncodableMap& map, const std::string& key, int defaultValue = 0) {
+  auto it = map.find(flutter::EncodableValue(key));
+  if (it == map.end()) return defaultValue;
+  if (const auto* val = std::get_if<int32_t>(&it->second)) {
+    return *val;
+  }
+  if (const auto* val = std::get_if<int64_t>(&it->second)) {
+    return static_cast<int>(*val);
+  }
+  if (const auto* val = std::get_if<double>(&it->second)) {
+    return static_cast<int>(*val);
+  }
+  return defaultValue;
+}
+
+bool GetBoolValue(const flutter::EncodableMap& map, const std::string& key, bool defaultValue = true) {
+  auto it = map.find(flutter::EncodableValue(key));
+  if (it == map.end()) return defaultValue;
+  if (const auto* val = std::get_if<bool>(&it->second)) {
+    return *val;
+  }
+  return defaultValue;
+}
+
+}  // namespace
+
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
 
@@ -63,19 +106,15 @@ bool FlutterWindow::OnCreate() {
           if (args) {
             POINT pt;
             GetCursorPos(&pt);
-            auto dx_it = args->find(flutter::EncodableValue("dx"));
-            auto dy_it = args->find(flutter::EncodableValue("dy"));
-            double dx = (dx_it != args->end()) ? std::get<double>(dx_it->second) : 0.0;
-            double dy = (dy_it != args->end()) ? std::get<double>(dy_it->second) : 0.0;
+            double dx = GetDoubleValue(*args, "dx", 0.0);
+            double dy = GetDoubleValue(*args, "dy", 0.0);
             SetCursorPos(pt.x + static_cast<int>(dx), pt.y + static_cast<int>(dy));
           }
           result->Success(flutter::EncodableValue(true));
         } else if (call.method_name() == "simulateMouseButton") {
           if (args) {
-            auto btn_it = args->find(flutter::EncodableValue("button"));
-            auto down_it = args->find(flutter::EncodableValue("isDown"));
-            int button = (btn_it != args->end()) ? std::get<int>(btn_it->second) : 0;
-            bool isDown = (down_it != args->end()) ? std::get<bool>(down_it->second) : true;
+            int button = GetIntValue(*args, "button", 0);
+            bool isDown = GetBoolValue(*args, "isDown", true);
 
             INPUT input = {0};
             input.type = INPUT_MOUSE;
@@ -91,8 +130,7 @@ bool FlutterWindow::OnCreate() {
           result->Success(flutter::EncodableValue(true));
         } else if (call.method_name() == "simulateMouseScroll") {
           if (args) {
-            auto dy_it = args->find(flutter::EncodableValue("dy"));
-            double dy = (dy_it != args->end()) ? std::get<double>(dy_it->second) : 0.0;
+            double dy = GetDoubleValue(*args, "dy", 0.0);
             INPUT input = {0};
             input.type = INPUT_MOUSE;
             input.mi.dwFlags = MOUSEEVENTF_WHEEL;
@@ -102,10 +140,8 @@ bool FlutterWindow::OnCreate() {
           result->Success(flutter::EncodableValue(true));
         } else if (call.method_name() == "simulateKey") {
           if (args) {
-            auto key_it = args->find(flutter::EncodableValue("keyCode"));
-            auto down_it = args->find(flutter::EncodableValue("isDown"));
-            int keyCode = (key_it != args->end()) ? std::get<int>(key_it->second) : 0;
-            bool isDown = (down_it != args->end()) ? std::get<bool>(down_it->second) : true;
+            int keyCode = GetIntValue(*args, "keyCode", 0);
+            bool isDown = GetBoolValue(*args, "isDown", true);
 
             INPUT input = {0};
             input.type = INPUT_KEYBOARD;
@@ -136,6 +172,9 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  if (input_channel_) {
+    input_channel_ = nullptr;
+  }
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
