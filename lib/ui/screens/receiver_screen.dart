@@ -43,6 +43,13 @@ class ReceiverScreenState extends State<ReceiverScreen> {
     }
   }
 
+  @override
+  void dispose() {
+    NativeInputService().simulateMouseButton(button: 0, isDown: false);
+    NativeInputService().simulateMouseButton(button: 1, isDown: false);
+    super.dispose();
+  }
+
   /// Called whenever a ControlEvent is received from the network
   void handleIncomingEvent(ControlEvent event) {
     if (event is PauseEvent) {
@@ -50,6 +57,10 @@ class ReceiverScreenState extends State<ReceiverScreen> {
         _isRemotePaused = event.isPaused;
         _lastEventDescription = event.isPaused ? 'Remote control paused' : 'Remote control resumed';
       });
+      if (event.isPaused) {
+        NativeInputService().simulateMouseButton(button: 0, isDown: false);
+        NativeInputService().simulateMouseButton(button: 1, isDown: false);
+      }
       return;
     }
 

@@ -36,10 +36,15 @@ class NativeInputService {
     }
   }
 
-  /// Warp pointer to specific coordinates
-  Future<void> warpPointer(double x, double y) async {
+  /// Warp pointer to specific coordinates, or window center if omitted
+  Future<void> warpPointer([double? x, double? y]) async {
     try {
-      await _channel.invokeMethod('warpPointer', {'x': x, 'y': y});
+      final Map<String, dynamic> args = {};
+      if (x != null && y != null) {
+        args['x'] = x;
+        args['y'] = y;
+      }
+      await _channel.invokeMethod('warpPointer', args);
     } catch (e) {
       debugPrint('Error warping pointer: $e');
     }
@@ -128,12 +133,13 @@ class NativeInputService {
   /// Simulate mouse movement (delta or absolute)
   Future<void> simulateMouseMove({required double dx, required double dy, double? x, double? y}) async {
     try {
-      await _channel.invokeMethod('simulateMouseMove', {
+      final Map<String, dynamic> args = {
         'dx': dx,
         'dy': dy,
-        'x': ?x,
-        'y': ?y,
-      });
+      };
+      if (x != null) args['x'] = x;
+      if (y != null) args['y'] = y;
+      await _channel.invokeMethod('simulateMouseMove', args);
     } catch (e) {
       // Ignore or debug
     }

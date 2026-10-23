@@ -4,6 +4,8 @@ import ApplicationServices
 
 class MainFlutterWindow: NSWindow {
   private var isLeftMouseDown = false
+  private var isRightMouseDown = false
+  private var isCursorHidden = false
 
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
@@ -14,7 +16,26 @@ class MainFlutterWindow: NSWindow {
     RegisterGeneratedPlugins(registry: flutterViewController)
     setupMethodChannel(controller: flutterViewController)
 
+    NotificationCenter.default.addObserver(
+      forName: NSWindow.didResignKeyNotification,
+      object: self,
+      queue: .main
+    ) { [weak self] _ in
+      guard let self = self else { return }
+      if self.isCursorHidden {
+        NSCursor.unhide()
+        self.isCursorHidden = false
+      }
+    }
+
     super.awakeFromNib()
+  }
+
+  deinit {
+    if isCursorHidden {
+      NSCursor.unhide()
+      isCursorHidden = false
+    }
   }
 
   private func setupMethodChannel(controller: FlutterViewController) {
@@ -77,8 +98,19 @@ class MainFlutterWindow: NSWindow {
 
       case "confinePointer":
         let enable = args?["enable"] as? Bool ?? false
-        if !enable {
+        if enable {
+          if !self.isCursorHidden {
+            NSCursor.hide()
+            self.isCursorHidden = true
+          }
+        } else {
           self.currentModifierFlags = []
+          self.isLeftMouseDown = false
+          self.isRightMouseDown = false
+          if self.isCursorHidden {
+            NSCursor.unhide()
+            self.isCursorHidden = false
+          }
         }
         result(true)
 
@@ -94,13 +126,29 @@ class MainFlutterWindow: NSWindow {
             if self.styleMask.contains(.fullScreen) {
               self.toggleFullScreen(nil)
             }
+            if self.isCursorHidden {
+              NSCursor.unhide()
+              self.isCursorHidden = false
+            }
           }
         }
         result(true)
 
       case "warpPointer":
         if let x = args?["x"] as? Double, let y = args?["y"] as? Double {
-          CGWarpMouseCursorPosition(CGPoint(x: CGFloat(x), y: CGFloat(y)))
+          let viewHeight = self.contentViewController?.view.bounds.height ?? self.frame.height
+          let windowPoint = NSPoint(x: CGFloat(x), y: viewHeight - CGFloat(y))
+          let screenPoint = self.convertToScreen(NSRect(origin: windowPoint, size: .zero)).origin
+          let primaryHeight = NSScreen.screens.first?.frame.height ?? 1080
+          let quartzY = primaryHeight - screenPoint.y
+          let quartzX = screenPoint.x
+          CGWarpMouseCursorPosition(CGPoint(x: quartzX, y: quartzY))
+        } else {
+          let windowFrame = self.frame
+          let cocoaCenter = NSPoint(x: windowFrame.midX, y: windowFrame.midY)
+          let primaryHeight = NSScreen.screens.first?.frame.height ?? 1080
+          let quartzCenter = CGPoint(x: cocoaCenter.x, y: primaryHeight - cocoaCenter.y)
+          CGWarpMouseCursorPosition(quartzCenter)
         }
         result(true)
 
@@ -117,23 +165,46 @@ class MainFlutterWindow: NSWindow {
     var targetPt: CGPoint
     let current = CGEvent(source: nil)?.location ?? CGPoint(x: 500, y: 500)
 
-    if let x = args["x"] as? Double, let y = args["y"] as? Double {
-      targetPt = CGPoint(x: CGFloat(x), y: CGFloat(y))
-    } else {
-      let dx = args["dx"] as? Double ?? 0.0
-      let dy = args["dy"] as? Double ?? 0.0
-      let mainFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
-      let newX = max(0, min(mainFrame.width - 1, current.x + CGFloat(dx)))
-      let newY = max(0, min(mainFrame.height - 1, current.y + CGFloat(dy)))
+    let dx = args["dx"] as? Double ?? 0.0
+    let dy = args["dy"] as? Double ?? 0.0
+    let hasDelta = (dx != 0.0 || dy != 0.0)
+
+    if hasDelta || args["x"] == nil {
+      // Calculate union bounding box of all screens in Quartz display coordinates
+      var unionRect = CGRect.zero
+      let primaryHeight = NSScreen.screens.first?.frame.height ?? 1080
+      for screen in NSScreen.screens {
+        let quartzY = primaryHeight - (screen.frame.origin.y + screen.frame.height)
+        let quartzRect = CGRect(x: screen.frame.origin.x, y: quartzY, width: screen.frame.width, height: screen.frame.height)
+        unionRect = unionRect.isEmpty ? quartzRect : unionRect.union(quartzRect)
+      }
+      if unionRect.isEmpty {
+        unionRect = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+      }
+
+      let newX = max(unionRect.minX, min(unionRect.maxX - 1, current.x + CGFloat(dx)))
+      let newY = max(unionRect.minY, min(unionRect.maxY - 1, current.y + CGFloat(dy)))
       targetPt = CGPoint(x: newX, y: newY)
+    } else {
+      let x = args["x"] as? Double ?? Double(current.x)
+      let y = args["y"] as? Double ?? Double(current.y)
+      targetPt = CGPoint(x: CGFloat(x), y: CGFloat(y))
     }
 
-    let eventType: CGEventType = isLeftMouseDown ? .leftMouseDragged : .mouseMoved
+    let eventType: CGEventType
+    if isLeftMouseDown {
+      eventType = .leftMouseDragged
+    } else if isRightMouseDown {
+      eventType = .rightMouseDragged
+    } else {
+      eventType = .mouseMoved
+    }
+
     let mouseEvent = CGEvent(
       mouseEventSource: nil,
       mouseType: eventType,
       mouseCursorPosition: targetPt,
-      mouseButton: .left
+      mouseButton: isRightMouseDown ? .right : .left
     )
     mouseEvent?.post(tap: .cghidEventTap)
   }
@@ -151,6 +222,7 @@ class MainFlutterWindow: NSWindow {
       eventType = isDown ? .leftMouseDown : .leftMouseUp
       cgButton = .left
     } else if button == 1 {
+      isRightMouseDown = isDown
       eventType = isDown ? .rightMouseDown : .rightMouseUp
       cgButton = .right
     } else {

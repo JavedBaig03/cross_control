@@ -6,7 +6,7 @@ import 'package:cross_control/services/key_mapping_service.dart';
 
 void main() {
   group('ControlEvent Protocol Tests', () {
-    test('MouseMoveEvent serialization and deserialization', () {
+    test('MouseMoveEvent serialization and deserialization with absolute coords', () {
       final event = MouseMoveEvent(dx: 12.5, dy: -8.2, x: 500, y: 300);
       final json = event.serialize();
       final restored = ControlEvent.deserialize(json);
@@ -17,6 +17,19 @@ void main() {
       expect(m.dy, -8.2);
       expect(m.x, 500);
       expect(m.y, 300);
+    });
+
+    test('MouseMoveEvent serialization and deserialization pure relative delta', () {
+      final event = MouseMoveEvent(dx: 14.2, dy: -9.8);
+      final json = event.serialize();
+      final restored = ControlEvent.deserialize(json);
+
+      expect(restored, isA<MouseMoveEvent>());
+      final m = restored as MouseMoveEvent;
+      expect(m.dx, 14.2);
+      expect(m.dy, -9.8);
+      expect(m.x, isNull);
+      expect(m.y, isNull);
     });
 
     test('MouseButtonEvent serialization and deserialization', () {

@@ -63,6 +63,17 @@ static bool g_isInputInterceptionActive = false;
 static flutter::MethodChannel<flutter::EncodableValue>* g_channel = nullptr;
 static double g_accDx = 0.0;
 static double g_accDy = 0.0;
+static bool g_isCursorHidden = false;
+
+static void SetCursorVisibility(bool visible) {
+  if (!visible && !g_isCursorHidden) {
+    ShowCursor(FALSE);
+    g_isCursorHidden = true;
+  } else if (visible && g_isCursorHidden) {
+    ShowCursor(TRUE);
+    g_isCursorHidden = false;
+  }
+}
 
 LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
   if (nCode == HC_ACTION && g_isInputInterceptionActive) {
@@ -163,23 +174,34 @@ bool FlutterWindow::OnCreate() {
           }
         } else if (call.method_name() == "simulateMouseMove") {
           if (args) {
-            double x = GetDoubleValue(*args, "x", -1.0);
-            double y = GetDoubleValue(*args, "y", -1.0);
-            if (x >= 0.0 && y >= 0.0) {
-              SetCursorPos(static_cast<int>(x), static_cast<int>(y));
-            } else {
+            double dx = GetDoubleValue(*args, "dx", 0.0);
+            double dy = GetDoubleValue(*args, "dy", 0.0);
+            bool hasExplicitCoords = (args->find(flutter::EncodableValue("x")) != args->end());
+
+            if (!hasExplicitCoords || dx != 0.0 || dy != 0.0) {
               POINT pt;
               GetCursorPos(&pt);
-              double dx = GetDoubleValue(*args, "dx", 0.0);
-              double dy = GetDoubleValue(*args, "dy", 0.0);
               g_accDx += dx;
               g_accDy += dy;
               int moveX = static_cast<int>(g_accDx);
               int moveY = static_cast<int>(g_accDy);
               g_accDx -= moveX;
               g_accDy -= moveY;
+
               if (moveX != 0 || moveY != 0) {
-                SetCursorPos(pt.x + moveX, pt.y + moveY);
+                int minX = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                int minY = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                int maxX = minX + GetSystemMetrics(SM_CXVIRTUALSCREEN) - 1;
+                int maxY = minY + GetSystemMetrics(SM_CYVIRTUALSCREEN) - 1;
+                int targetX = (std::max)(minX, (std::min)(maxX, pt.x + moveX));
+                int targetY = (std::max)(minY, (std::min)(maxY, pt.y + moveY));
+                SetCursorPos(targetX, targetY);
+              }
+            } else {
+              double x = GetDoubleValue(*args, "x", -1.0);
+              double y = GetDoubleValue(*args, "y", -1.0);
+              if (x >= 0.0 && y >= 0.0) {
+                SetCursorPos(static_cast<int>(x), static_cast<int>(y));
               }
             }
           }
@@ -203,12 +225,22 @@ bool FlutterWindow::OnCreate() {
           result->Success(flutter::EncodableValue(true));
         } else if (call.method_name() == "simulateMouseScroll") {
           if (args) {
+            double dx = GetDoubleValue(*args, "dx", 0.0);
             double dy = GetDoubleValue(*args, "dy", 0.0);
-            INPUT input = {0};
-            input.type = INPUT_MOUSE;
-            input.mi.dwFlags = MOUSEEVENTF_WHEEL;
-            input.mi.mouseData = static_cast<DWORD>(dy * 120.0);
-            SendInput(1, &input, sizeof(INPUT));
+            if (dy != 0.0) {
+              INPUT input = {0};
+              input.type = INPUT_MOUSE;
+              input.mi.dwFlags = MOUSEEVENTF_WHEEL;
+              input.mi.mouseData = static_cast<DWORD>(static_cast<int>(-dy));
+              SendInput(1, &input, sizeof(INPUT));
+            }
+            if (dx != 0.0) {
+              INPUT input = {0};
+              input.type = INPUT_MOUSE;
+              input.mi.dwFlags = MOUSEEVENTF_HWHEEL;
+              input.mi.mouseData = static_cast<DWORD>(static_cast<int>(dx));
+              SendInput(1, &input, sizeof(INPUT));
+            }
           }
           result->Success(flutter::EncodableValue(true));
         } else if (call.method_name() == "simulateKey") {
@@ -247,23 +279,39 @@ bool FlutterWindow::OnCreate() {
           if (args) {
             enable = GetBoolValue(*args, "enable", false);
           }
-          if (enable) {
-            HWND hwnd = flutter_controller_->view()->GetNativeWindow();
-            if (hwnd) {
+          HWND hwnd = flutter_controller_->view()->GetNativeWindow();
+          if (hwnd) {
+            if (enable) {
               RECT rect;
               GetClientRect(hwnd, &rect);
+              InflateRect(&rect, -10, -10);
               MapWindowPoints(hwnd, NULL, (LPPOINT)&rect, 2);
               ClipCursor(&rect);
+              SetCursorVisibility(false);
+            } else {
+              ClipCursor(NULL);
+              SetCursorVisibility(true);
             }
-          } else {
-            ClipCursor(NULL);
           }
           result->Success(flutter::EncodableValue(true));
         } else if (call.method_name() == "warpPointer") {
-          if (args) {
-            double x = GetDoubleValue(*args, "x", 0.0);
-            double y = GetDoubleValue(*args, "y", 0.0);
-            SetCursorPos(static_cast<int>(x), static_cast<int>(y));
+          HWND hwnd = flutter_controller_->view()->GetNativeWindow();
+          if (hwnd) {
+            POINT pt;
+            if (args && args->find(flutter::EncodableValue("x")) != args->end() &&
+                        args->find(flutter::EncodableValue("y")) != args->end()) {
+              double x = GetDoubleValue(*args, "x", 0.0);
+              double y = GetDoubleValue(*args, "y", 0.0);
+              pt.x = static_cast<LONG>(x);
+              pt.y = static_cast<LONG>(y);
+            } else {
+              RECT rect;
+              GetClientRect(hwnd, &rect);
+              pt.x = (rect.left + rect.right) / 2;
+              pt.y = (rect.top + rect.bottom) / 2;
+            }
+            ClientToScreen(hwnd, &pt);
+            SetCursorPos(pt.x, pt.y);
           }
           result->Success(flutter::EncodableValue(true));
         } else if (call.method_name() == "setLocalInputInterception") {
@@ -296,6 +344,8 @@ bool FlutterWindow::OnCreate() {
               ShowWindow(hwnd, SW_MAXIMIZE);
             } else {
               ShowWindow(hwnd, SW_RESTORE);
+              ClipCursor(NULL);
+              SetCursorVisibility(true);
             }
           }
           result->Success(flutter::EncodableValue(true));
@@ -325,6 +375,7 @@ void FlutterWindow::OnDestroy() {
   }
   g_isInputInterceptionActive = false;
   ClipCursor(NULL);
+  SetCursorVisibility(true);
   g_channel = nullptr;
 
   if (input_channel_) {
@@ -352,6 +403,16 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   switch (message) {
+    case WM_KILLFOCUS:
+      ClipCursor(NULL);
+      SetCursorVisibility(true);
+      break;
+    case WM_ACTIVATE:
+      if (LOWORD(wparam) == WA_INACTIVE) {
+        ClipCursor(NULL);
+        SetCursorVisibility(true);
+      }
+      break;
     case WM_SYSKEYDOWN:
     case WM_SYSKEYUP:
       if (g_isInputInterceptionActive && wparam == VK_SPACE) {

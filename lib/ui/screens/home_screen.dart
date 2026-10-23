@@ -134,6 +134,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _simulateNativeEventDirectly(ControlEvent event) {
+    if (event is PauseEvent && event.isPaused) {
+      NativeInputService().simulateMouseButton(button: 0, isDown: false);
+      NativeInputService().simulateMouseButton(button: 1, isDown: false);
+      return;
+    }
+
     if (event is MouseMoveEvent) {
       NativeInputService().simulateMouseMove(
         dx: event.dx,
