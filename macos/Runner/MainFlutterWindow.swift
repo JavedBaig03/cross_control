@@ -107,6 +107,7 @@ class MainFlutterWindow: NSWindow {
           self.currentModifierFlags = []
           self.isLeftMouseDown = false
           self.isRightMouseDown = false
+          self.remoteCursorPosition = nil
           if self.isCursorHidden {
             NSCursor.unhide()
             self.isCursorHidden = false
@@ -161,35 +162,50 @@ class MainFlutterWindow: NSWindow {
     }
   }
 
-  private func handleMouseMove(args: [String: Any]) {
-    var targetPt: CGPoint
-    let current = CGEvent(source: nil)?.location ?? CGPoint(x: 500, y: 500)
+  private var remoteCursorPosition: CGPoint? = nil
+  private var lastMouseMoveTime: TimeInterval = 0
 
+  private func getInitialCursorPosition() -> CGPoint {
+    let primaryHeight = NSScreen.screens.first?.frame.height ?? 1080
+    let cocoaPos = NSEvent.mouseLocation
+    return CGPoint(x: cocoaPos.x, y: primaryHeight - cocoaPos.y)
+  }
+
+  private func handleMouseMove(args: [String: Any]) {
+    let now = ProcessInfo.processInfo.systemUptime
     let dx = args["dx"] as? Double ?? 0.0
     let dy = args["dy"] as? Double ?? 0.0
-    let hasDelta = (dx != 0.0 || dy != 0.0)
+    let hasExplicitX = (args["x"] != nil)
 
-    if hasDelta || args["x"] == nil {
-      // Calculate union bounding box of all screens in Quartz display coordinates
-      var unionRect = CGRect.zero
-      let primaryHeight = NSScreen.screens.first?.frame.height ?? 1080
-      for screen in NSScreen.screens {
-        let quartzY = primaryHeight - (screen.frame.origin.y + screen.frame.height)
-        let quartzRect = CGRect(x: screen.frame.origin.x, y: quartzY, width: screen.frame.width, height: screen.frame.height)
-        unionRect = unionRect.isEmpty ? quartzRect : unionRect.union(quartzRect)
-      }
-      if unionRect.isEmpty {
-        unionRect = CGRect(x: 0, y: 0, width: 1920, height: 1080)
-      }
+    // Calculate union bounding box of all screens in Quartz display coordinates
+    var unionRect = CGRect.zero
+    let primaryHeight = NSScreen.screens.first?.frame.height ?? 1080
+    for screen in NSScreen.screens {
+      let quartzY = primaryHeight - (screen.frame.origin.y + screen.frame.height)
+      let quartzRect = CGRect(x: screen.frame.origin.x, y: quartzY, width: screen.frame.width, height: screen.frame.height)
+      unionRect = unionRect.isEmpty ? quartzRect : unionRect.union(quartzRect)
+    }
+    if unionRect.isEmpty {
+      unionRect = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+    }
 
+    var targetPt: CGPoint
+    if hasExplicitX {
+      let x = args["x"] as? Double ?? 0.0
+      let y = args["y"] as? Double ?? 0.0
+      targetPt = CGPoint(x: CGFloat(x), y: CGFloat(y))
+      remoteCursorPosition = targetPt
+    } else {
+      if remoteCursorPosition == nil || (now - lastMouseMoveTime > 0.5) {
+        remoteCursorPosition = getInitialCursorPosition()
+      }
+      let current = remoteCursorPosition!
       let newX = max(unionRect.minX, min(unionRect.maxX - 1, current.x + CGFloat(dx)))
       let newY = max(unionRect.minY, min(unionRect.maxY - 1, current.y + CGFloat(dy)))
       targetPt = CGPoint(x: newX, y: newY)
-    } else {
-      let x = args["x"] as? Double ?? Double(current.x)
-      let y = args["y"] as? Double ?? Double(current.y)
-      targetPt = CGPoint(x: CGFloat(x), y: CGFloat(y))
+      remoteCursorPosition = targetPt
     }
+    lastMouseMoveTime = now
 
     let eventType: CGEventType
     if isLeftMouseDown {
@@ -212,7 +228,7 @@ class MainFlutterWindow: NSWindow {
   private func handleMouseButton(args: [String: Any]) {
     let button = args["button"] as? Int ?? 0 // 0: left, 1: right, 2: middle
     let isDown = args["isDown"] as? Bool ?? true
-    let current = CGEvent(source: nil)?.location ?? CGPoint(x: 500, y: 500)
+    let current = remoteCursorPosition ?? getInitialCursorPosition()
 
     var eventType: CGEventType
     var cgButton: CGMouseButton
