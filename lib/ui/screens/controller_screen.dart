@@ -13,11 +13,15 @@ import '../widgets/status_pill.dart';
 
 class ControllerScreen extends StatefulWidget {
   final PeerInfo peer;
+  final double targetScreenWidth;
+  final double targetScreenHeight;
   final VoidCallback onDisconnect;
 
   const ControllerScreen({
     super.key,
     required this.peer,
+    this.targetScreenWidth = 1920.0,
+    this.targetScreenHeight = 1080.0,
     required this.onDisconnect,
   });
 
@@ -30,16 +34,18 @@ class _ControllerScreenState extends State<ControllerScreen> {
   bool _isControlActive = true;
   double _sensitivity = 1.0;
 
-  // Trackpad simulation visualizer coordinates
-  double _localPointerX = 0.5;
-  double _localPointerY = 0.5;
-  bool _isPointerDown = false;
-  String _lastKeyStroke = 'None';
+  // Remote cursor position mapped to the receiver's screen resolution
+  late double _remoteCursorX;
+  late double _remoteCursorY;
 
   @override
   void initState() {
     super.initState();
-    NativeInputService().confinePointer(true);
+    _remoteCursorX = widget.targetScreenWidth / 2;
+    _remoteCursorY = widget.targetScreenHeight / 2;
+
+    // Enter full screen and activate native input interception
+    NativeInputService().setFullScreen(true);
     NativeInputService().setLocalInputInterception(true);
 
     NativeInputService().onInterceptedKey = ({
@@ -81,7 +87,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
   @override
   void dispose() {
     NativeInputService().onInterceptedKey = null;
-    NativeInputService().confinePointer(false);
+    NativeInputService().setFullScreen(false);
     NativeInputService().setLocalInputInterception(false);
     _focusNode.dispose();
     super.dispose();
@@ -104,12 +110,12 @@ class _ControllerScreenState extends State<ControllerScreen> {
     });
 
     if (_isControlActive) {
-      NativeInputService().confinePointer(true);
+      NativeInputService().setFullScreen(true);
       NativeInputService().setLocalInputInterception(true);
       NetworkService().sendEvent(ResumeEvent());
       _focusNode.requestFocus();
     } else {
-      NativeInputService().confinePointer(false);
+      NativeInputService().setFullScreen(false);
       NativeInputService().setLocalInputInterception(false);
       NetworkService().sendEvent(PauseEvent(isPaused: true));
     }
@@ -130,10 +136,6 @@ class _ControllerScreenState extends State<ControllerScreen> {
     final isDown = event is KeyDownEvent || event is KeyRepeatEvent;
     final codes = KeyMappingService().resolveNativeCodes(event);
 
-    setState(() {
-      _lastKeyStroke = '${event.logicalKey.keyLabel} (${isDown ? 'Down' : 'Up'})';
-    });
-
     final keyData = KeyEventData(
       keyCode: codes.windowsVk,
       windowsVk: codes.windowsVk,
@@ -153,37 +155,23 @@ class _ControllerScreenState extends State<ControllerScreen> {
     return KeyEventResult.handled;
   }
 
-  void _handlePointerHover(PointerHoverEvent event) {
+  /// Unified pointer movement handler for both hover and drag movements across built-in trackpads and external mice
+  void _handlePointerMovement(PointerEvent event) {
     if (!_isControlActive) return;
 
     final dx = event.delta.dx * _sensitivity;
     final dy = event.delta.dy * _sensitivity;
 
-    setState(() {
-      _localPointerX = (_localPointerX + (dx / 500)).clamp(0.05, 0.95);
-      _localPointerY = (_localPointerY + (dy / 500)).clamp(0.05, 0.95);
-    });
+    if (dx == 0.0 && dy == 0.0) return;
+
+    _remoteCursorX = (_remoteCursorX + dx).clamp(0.0, widget.targetScreenWidth - 1);
+    _remoteCursorY = (_remoteCursorY + dy).clamp(0.0, widget.targetScreenHeight - 1);
 
     NetworkService().sendEvent(MouseMoveEvent(
       dx: dx,
       dy: dy,
-    ));
-  }
-
-  void _handlePointerMove(PointerMoveEvent event) {
-    if (!_isControlActive) return;
-
-    final dx = event.delta.dx * _sensitivity;
-    final dy = event.delta.dy * _sensitivity;
-
-    setState(() {
-      _localPointerX = (_localPointerX + (dx / 500)).clamp(0.05, 0.95);
-      _localPointerY = (_localPointerY + (dy / 500)).clamp(0.05, 0.95);
-    });
-
-    NetworkService().sendEvent(MouseMoveEvent(
-      dx: dx,
-      dy: dy,
+      x: _remoteCursorX,
+      y: _remoteCursorY,
     ));
   }
 
@@ -194,8 +182,6 @@ class _ControllerScreenState extends State<ControllerScreen> {
     if (event.buttons == 2) button = 1; // right
     if (event.buttons == 4) button = 2; // middle
 
-    setState(() => _isPointerDown = true);
-
     NetworkService().sendEvent(MouseButtonEvent(
       button: button,
       isDown: true,
@@ -204,8 +190,6 @@ class _ControllerScreenState extends State<ControllerScreen> {
 
   void _handlePointerUp(PointerUpEvent event) {
     if (!_isControlActive) return;
-
-    setState(() => _isPointerDown = false);
 
     NetworkService().sendEvent(MouseButtonEvent(
       button: 0,
@@ -237,52 +221,117 @@ class _ControllerScreenState extends State<ControllerScreen> {
         descendantsAreFocusable: false,
         descendantsAreTraversable: false,
         onKeyEvent: _onFocusKeyEvent,
-        child: Column(
-          children: [
-            // Top HUD Control Bar
-            _buildTopBar(shortcutText),
+        child: _isControlActive
+            ? _buildFullScreenControlSurface(shortcutText)
+            : _buildPausedInterface(shortcutText),
+      ),
+    );
+  }
 
-            // Main Control Surface
-            Expanded(
-              child: Stack(
-                children: [
-                  // Interactive Pointer & Touch Capture Canvas
-                  MouseRegion(
-                    cursor: _isControlActive ? SystemMouseCursors.none : SystemMouseCursors.basic,
-                    child: Listener(
-                      behavior: HitTestBehavior.opaque,
-                      onPointerHover: _handlePointerHover,
-                      onPointerMove: _handlePointerMove,
-                      onPointerDown: _handlePointerDown,
-                      onPointerUp: _handlePointerUp,
-                      onPointerSignal: _handlePointerSignal,
-                      child: Container(
-                        width: double.infinity,
-                        height: double.infinity,
-                        color: _isControlActive
-                            ? AppColors.surface.withOpacity(0.4)
-                            : AppColors.background,
-                        child: _buildControlSurfaceContent(shortcutText),
-                      ),
+  /// Full-Screen Remote Control Interface: No buttons, no menus, completely unobstructed surface
+  Widget _buildFullScreenControlSurface(String shortcutText) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.none,
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerHover: _handlePointerMovement,
+        onPointerMove: _handlePointerMovement,
+        onPointerDown: _handlePointerDown,
+        onPointerUp: _handlePointerUp,
+        onPointerSignal: _handlePointerSignal,
+        child: Container(
+          width: double.infinity,
+          height: double.infinity,
+          color: const Color(0xFF070A10),
+          child: Stack(
+            children: [
+              // Subtle ambient glow in center
+              Center(
+                child: Container(
+                  width: 320,
+                  height: 320,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        AppColors.cyan.withOpacity(0.04),
+                        Colors.transparent,
+                      ],
                     ),
                   ),
-
-                  // Overlay when control is paused
-                  if (!_isControlActive)
-                    Positioned.fill(
-                      child: Container(
-                        color: Colors.black.withOpacity(0.7),
-                        child: Center(
-                          child: _buildPausedCard(shortcutText),
-                        ),
-                      ),
-                    ),
-                ],
+                ),
               ),
-            ),
-          ],
+
+              // Small unobtrusive floating shortcut pill at the top
+              Positioned(
+                top: 20,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF101622).withOpacity(0.85),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: Colors.white.withOpacity(0.12)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.3),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: const BoxDecoration(
+                            color: AppColors.emerald,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          'Controlling ${widget.peer.name}  •  Press $shortcutText to pause',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.8),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+
+  /// Paused Interface: Normal UI revealed with all stats and control buttons
+  Widget _buildPausedInterface(String shortcutText) {
+    return Column(
+      children: [
+        // Top HUD Bar
+        _buildTopBar(shortcutText),
+
+        // Main Paused Card View
+        Expanded(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(32),
+              child: _buildPausedCard(shortcutText),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -395,33 +444,29 @@ class _ControllerScreenState extends State<ControllerScreen> {
           const SizedBox(width: 10),
 
           // Control state pill
-          StatusPill(
-            label: _isControlActive ? 'IN CONTROL' : 'PAUSED (LOCAL MODE)',
-            color: _isControlActive ? AppColors.emerald : AppColors.amber,
-            isPulsing: _isControlActive,
+          const StatusPill(
+            label: 'PAUSED (LOCAL MODE)',
+            color: AppColors.amber,
+            isPulsing: false,
           ),
           const SizedBox(width: 16),
 
-          // Pause / Resume Toggle Button
+          // Resume Button
           ElevatedButton.icon(
             onPressed: _togglePauseControl,
-            icon: Icon(
-              _isControlActive ? Icons.pause_rounded : Icons.play_arrow_rounded,
-              size: 16,
-              color: Colors.white,
-            ),
+            icon: const Icon(Icons.play_arrow_rounded, size: 18, color: Colors.black),
             label: Text(
-              _isControlActive ? 'Pause ($shortcutText)' : 'Resume ($shortcutText)',
+              'Resume ($shortcutText)',
               style: const TextStyle(
-                color: Colors.white,
+                color: Colors.black,
                 fontSize: 13,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.bold,
               ),
             ),
             style: ElevatedButton.styleFrom(
-              backgroundColor: _isControlActive ? AppColors.amber.withOpacity(0.8) : AppColors.emerald,
+              backgroundColor: AppColors.emerald,
               elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
           ),
@@ -430,6 +475,8 @@ class _ControllerScreenState extends State<ControllerScreen> {
           // Disconnect Button
           OutlinedButton.icon(
             onPressed: () {
+              NativeInputService().setFullScreen(false);
+              NativeInputService().setLocalInputInterception(false);
               NetworkService().disconnect();
               widget.onDisconnect();
             },
@@ -449,219 +496,13 @@ class _ControllerScreenState extends State<ControllerScreen> {
     );
   }
 
-  Widget _buildControlSurfaceContent(String shortcutText) {
-    return Center(
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 820),
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Active Control Indicator
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppColors.cyan.withOpacity(0.12),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.cyan.withOpacity(0.3)),
-                  ),
-                  child: const Icon(Icons.touch_app_rounded, color: AppColors.cyan, size: 28),
-                ),
-                const SizedBox(width: 16),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'REMOTE CONTROL ACTIVE',
-                      style: TextStyle(
-                        color: AppColors.cyan,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Move mouse or type anywhere in this window to control ${widget.peer.name}',
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 32),
-
-            // Simulated Trackpad & Visual Feedback Canvas
-            Expanded(
-              child: GlassCard(
-                borderColor: AppColors.cyan.withOpacity(0.4),
-                backgroundColor: AppColors.surfaceElevated.withOpacity(0.7),
-                padding: const EdgeInsets.all(24),
-                child: Stack(
-                  children: [
-                    // Grid background lines
-                    Positioned.fill(
-                      child: CustomPaint(
-                        painter: GridBackgroundPainter(),
-                      ),
-                    ),
-
-                    // Center instruction
-                    Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.mouse_rounded,
-                            size: 40,
-                            color: AppColors.textMuted.withOpacity(0.4),
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Pointer & Keyboard Capture Surface',
-                            style: TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Press $shortcutText at any time to pause and restore local control',
-                            style: const TextStyle(
-                              color: AppColors.textMuted,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Live Animated Pointer Reticle
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        return Positioned(
-                          left: constraints.maxWidth * _localPointerX - 16,
-                          top: constraints.maxHeight * _localPointerY - 16,
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 40),
-                            width: 32,
-                            height: 32,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: _isPointerDown
-                                  ? AppColors.emerald.withOpacity(0.6)
-                                  : AppColors.cyan.withOpacity(0.35),
-                              border: Border.all(
-                                color: _isPointerDown ? AppColors.emerald : AppColors.cyan,
-                                width: 2,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: (_isPointerDown ? AppColors.emerald : AppColors.cyan)
-                                      .withOpacity(0.5),
-                                  blurRadius: 12,
-                                  spreadRadius: 2,
-                                ),
-                              ],
-                            ),
-                            child: const Center(
-                              child: Icon(
-                                Icons.near_me_rounded,
-                                size: 14,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-
-                    // Last Keystroke visualizer in bottom left
-                    Positioned(
-                      left: 16,
-                      bottom: 16,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: AppColors.background.withOpacity(0.85),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppColors.border),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.keyboard_rounded, size: 14, color: AppColors.cyan),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Key: $_lastKeyStroke',
-                              style: const TextStyle(
-                                color: AppColors.textPrimary,
-                                fontSize: 12,
-                                fontFamily: 'Courier',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    // Sensitivity Slider in bottom right
-                    Positioned(
-                      right: 16,
-                      bottom: 12,
-                      child: Row(
-                        children: [
-                          const Icon(Icons.speed_rounded, size: 14, color: AppColors.textSecondary),
-                          const SizedBox(width: 8),
-                          const Text(
-                            'Sensitivity',
-                            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                          ),
-                          SizedBox(
-                            width: 120,
-                            child: Slider(
-                              value: _sensitivity,
-                              min: 0.5,
-                              max: 2.5,
-                              divisions: 8,
-                              activeColor: AppColors.cyan,
-                              inactiveColor: AppColors.border,
-                              onChanged: (val) {
-                                setState(() => _sensitivity = val);
-                              },
-                            ),
-                          ),
-                          Text(
-                            '${_sensitivity.toStringAsFixed(1)}x',
-                            style: const TextStyle(color: AppColors.textPrimary, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildPausedCard(String shortcutText) {
     return GlassCard(
       borderColor: AppColors.amber.withOpacity(0.5),
       backgroundColor: AppColors.surfaceElevated.withOpacity(0.95),
-      padding: const EdgeInsets.all(32),
+      padding: const EdgeInsets.all(36),
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 440),
+        constraints: const BoxConstraints(maxWidth: 480),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -672,9 +513,9 @@ class _ControllerScreenState extends State<ControllerScreen> {
                 shape: BoxShape.circle,
                 border: Border.all(color: AppColors.amber.withOpacity(0.4)),
               ),
-              child: const Icon(Icons.pause_circle_rounded, color: AppColors.amber, size: 40),
+              child: const Icon(Icons.pause_circle_rounded, color: AppColors.amber, size: 44),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 20),
             const Text(
               'Remote Control Paused',
               style: TextStyle(
@@ -693,20 +534,62 @@ class _ControllerScreenState extends State<ControllerScreen> {
                 height: 1.4,
               ),
             ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: _togglePauseControl,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.emerald,
-                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            const SizedBox(height: 8),
+            Text(
+              'Press $shortcutText to resume remote control at any time.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.cyan,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.play_arrow_rounded, color: Colors.black, size: 20),
-                  const SizedBox(width: 8),
-                  Text(
+            ),
+            const SizedBox(height: 24),
+
+            // Sensitivity setting while paused
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.speed_rounded, size: 16, color: AppColors.textSecondary),
+                const SizedBox(width: 8),
+                const Text(
+                  'Pointer Speed:',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                ),
+                SizedBox(
+                  width: 140,
+                  child: Slider(
+                    value: _sensitivity,
+                    min: 0.5,
+                    max: 2.5,
+                    divisions: 8,
+                    activeColor: AppColors.cyan,
+                    inactiveColor: AppColors.border,
+                    onChanged: (val) {
+                      setState(() => _sensitivity = val);
+                    },
+                  ),
+                ),
+                Text(
+                  '${_sensitivity.toStringAsFixed(1)}x',
+                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _togglePauseControl,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.emerald,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  icon: const Icon(Icons.play_arrow_rounded, color: Colors.black, size: 20),
+                  label: Text(
                     'Resume Control ($shortcutText)',
                     style: const TextStyle(
                       color: Colors.black,
@@ -714,32 +597,30 @@ class _ControllerScreenState extends State<ControllerScreen> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 12),
+                OutlinedButton(
+                  onPressed: () {
+                    NativeInputService().setFullScreen(false);
+                    NativeInputService().setLocalInputInterception(false);
+                    NetworkService().disconnect();
+                    widget.onDisconnect();
+                  },
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: AppColors.coral.withOpacity(0.6)),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: const Text(
+                    'Disconnect',
+                    style: TextStyle(color: AppColors.coral, fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
       ),
     );
   }
-}
-
-class GridBackgroundPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AppColors.border.withOpacity(0.3)
-      ..strokeWidth = 1.0;
-
-    const step = 40.0;
-    for (double x = 0; x < size.width; x += step) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-    for (double y = 0; y < size.height; y += step) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

@@ -54,6 +54,15 @@ class NativeInputService {
     }
   }
 
+  /// Toggle native full-screen mode on macOS and Windows
+  Future<void> setFullScreen(bool enable) async {
+    try {
+      await _channel.invokeMethod('setFullScreen', {'enable': enable});
+    } catch (e) {
+      debugPrint('Error toggling full screen: $e');
+    }
+  }
+
   /// Check whether the app has Accessibility permissions (macOS)
   Future<bool> checkAccessibilityPermission() async {
     if (!Platform.isMacOS) return true;

@@ -77,11 +77,24 @@ class MainFlutterWindow: NSWindow {
 
       case "confinePointer":
         let enable = args?["enable"] as? Bool ?? false
-        if enable {
-          CGAssociateMouseAndMouseCursorPosition(boolean_t(truncating: false))
-        } else {
-          CGAssociateMouseAndMouseCursorPosition(boolean_t(truncating: true))
+        if !enable {
           self.currentModifierFlags = []
+        }
+        result(true)
+
+      case "setFullScreen":
+        let enable = args?["enable"] as? Bool ?? false
+        DispatchQueue.main.async { [weak self] in
+          guard let self = self else { return }
+          if enable {
+            if !self.styleMask.contains(.fullScreen) {
+              self.toggleFullScreen(nil)
+            }
+          } else {
+            if self.styleMask.contains(.fullScreen) {
+              self.toggleFullScreen(nil)
+            }
+          }
         }
         result(true)
 

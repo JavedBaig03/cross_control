@@ -163,18 +163,24 @@ bool FlutterWindow::OnCreate() {
           }
         } else if (call.method_name() == "simulateMouseMove") {
           if (args) {
-            POINT pt;
-            GetCursorPos(&pt);
-            double dx = GetDoubleValue(*args, "dx", 0.0);
-            double dy = GetDoubleValue(*args, "dy", 0.0);
-            g_accDx += dx;
-            g_accDy += dy;
-            int moveX = static_cast<int>(g_accDx);
-            int moveY = static_cast<int>(g_accDy);
-            g_accDx -= moveX;
-            g_accDy -= moveY;
-            if (moveX != 0 || moveY != 0) {
-              SetCursorPos(pt.x + moveX, pt.y + moveY);
+            double x = GetDoubleValue(*args, "x", -1.0);
+            double y = GetDoubleValue(*args, "y", -1.0);
+            if (x >= 0.0 && y >= 0.0) {
+              SetCursorPos(static_cast<int>(x), static_cast<int>(y));
+            } else {
+              POINT pt;
+              GetCursorPos(&pt);
+              double dx = GetDoubleValue(*args, "dx", 0.0);
+              double dy = GetDoubleValue(*args, "dy", 0.0);
+              g_accDx += dx;
+              g_accDy += dy;
+              int moveX = static_cast<int>(g_accDx);
+              int moveY = static_cast<int>(g_accDy);
+              g_accDx -= moveX;
+              g_accDy -= moveY;
+              if (moveX != 0 || moveY != 0) {
+                SetCursorPos(pt.x + moveX, pt.y + moveY);
+              }
             }
           }
           result->Success(flutter::EncodableValue(true));
@@ -275,6 +281,22 @@ bool FlutterWindow::OnCreate() {
           } else if (!enable && g_keyboardHook) {
             UnhookWindowsHookEx(g_keyboardHook);
             g_keyboardHook = NULL;
+          }
+          result->Success(flutter::EncodableValue(true));
+        } else if (call.method_name() == "setFullScreen") {
+          bool enable = false;
+          if (args) {
+            enable = GetBoolValue(*args, "enable", false);
+          }
+          HWND hwnd = flutter_controller_->view()->GetNativeWindow();
+          if (hwnd) {
+            HWND parent = GetAncestor(hwnd, GA_ROOT);
+            if (parent) hwnd = parent;
+            if (enable) {
+              ShowWindow(hwnd, SW_MAXIMIZE);
+            } else {
+              ShowWindow(hwnd, SW_RESTORE);
+            }
           }
           result->Success(flutter::EncodableValue(true));
         } else {

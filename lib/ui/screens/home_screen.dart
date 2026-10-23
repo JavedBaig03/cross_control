@@ -38,6 +38,8 @@ class _HomeScreenState extends State<HomeScreen> {
   ConnectionMode _connectionMode = ConnectionMode.idle;
   PeerInfo? _activeControllerPeer;
   ConnectionRequest? _activeReceiverRequest;
+  double _remoteScreenWidth = 1920.0;
+  double _remoteScreenHeight = 1080.0;
 
   @override
   void initState() {
@@ -295,6 +297,8 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           _connectionMode = ConnectionMode.controller;
           _activeControllerPeer = connectedPeer;
+          _remoteScreenWidth = response.screenWidth ?? 1920.0;
+          _remoteScreenHeight = response.screenHeight ?? 1080.0;
         });
       } else {
         _showError(
@@ -357,6 +361,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_connectionMode == ConnectionMode.controller && _activeControllerPeer != null) {
       return ControllerScreen(
         peer: _activeControllerPeer!,
+        targetScreenWidth: _remoteScreenWidth,
+        targetScreenHeight: _remoteScreenHeight,
         onDisconnect: () {
           setState(() {
             _connectionMode = ConnectionMode.idle;
