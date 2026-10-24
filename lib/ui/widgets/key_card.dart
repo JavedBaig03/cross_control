@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
+import 'device_avatar.dart';
 import 'glass_card.dart';
 
 class KeyCard extends StatefulWidget {
@@ -57,13 +59,9 @@ class _KeyCardState extends State<KeyCard> {
             children: [
               Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppColors.cyan.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.vpn_key_rounded, color: AppColors.cyan, size: 20),
+                  DeviceAvatar(
+                    size: 36,
+                    isMac: Platform.isMacOS,
                   ),
                   const SizedBox(width: 12),
                   const Column(
@@ -154,7 +152,7 @@ class _KeyCardState extends State<KeyCard> {
           // Device info & local IP row
           Row(
             children: [
-              const Icon(Icons.laptop_mac_rounded, size: 15, color: AppColors.textSecondary),
+              DeviceAvatar(size: 18, isMac: Platform.isMacOS, showBadge: false),
               const SizedBox(width: 6),
               Text(
                 widget.deviceName,

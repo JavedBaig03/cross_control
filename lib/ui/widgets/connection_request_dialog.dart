@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/control_events.dart';
 import '../theme/app_colors.dart';
+import 'device_avatar.dart';
 import 'glass_card.dart';
 
 class ConnectionRequestDialog extends StatelessWidget {
@@ -35,18 +36,10 @@ class ConnectionRequestDialog extends StatelessWidget {
               // Header
               Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppColors.cyan.withOpacity(0.15),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.cyan.withOpacity(0.3)),
-                    ),
-                    child: const Icon(
-                      Icons.settings_remote_rounded,
-                      color: AppColors.cyan,
-                      size: 28,
-                    ),
+                  DeviceAvatar(
+                    size: 52,
+                    isMac: isMac,
+                    showPlatformBadge: true,
                   ),
                   const SizedBox(width: 16),
                   const Expanded(

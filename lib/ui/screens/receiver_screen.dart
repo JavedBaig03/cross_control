@@ -5,6 +5,7 @@ import '../../models/control_events.dart';
 import '../../services/native_input_service.dart';
 import '../../services/network_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/device_avatar.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/status_pill.dart';
 
@@ -153,17 +154,10 @@ class ReceiverScreenState extends State<ReceiverScreen> {
             ),
             child: Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: AppColors.neonPurple.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    isMac ? Icons.laptop_mac_rounded : Icons.laptop_windows_rounded,
-                    color: AppColors.neonPurple,
-                    size: 20,
-                  ),
+                DeviceAvatar(
+                  size: 36,
+                  isMac: isMac,
+                  showPlatformBadge: true,
                 ),
                 const SizedBox(width: 12),
                 Column(

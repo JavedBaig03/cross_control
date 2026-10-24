@@ -296,26 +296,12 @@ bool FlutterWindow::OnCreate() {
           HWND hwnd = flutter_controller_->view()->GetNativeWindow();
           if (hwnd) {
             POINT pt;
-            double dpiScale = 1.0;
-            HMODULE user32 = GetModuleHandleA("user32.dll");
-            if (user32) {
-              typedef UINT(WINAPI * GetDpiForWindowFn)(HWND);
-              GetDpiForWindowFn getDpiForWindow =
-                  reinterpret_cast<GetDpiForWindowFn>(GetProcAddress(user32, "GetDpiForWindow"));
-              if (getDpiForWindow) {
-                UINT dpi = getDpiForWindow(hwnd);
-                if (dpi > 0) {
-                  dpiScale = static_cast<double>(dpi) / 96.0;
-                }
-              }
-            }
-
             if (args && args->find(flutter::EncodableValue("x")) != args->end() &&
                         args->find(flutter::EncodableValue("y")) != args->end()) {
               double x = GetDoubleValue(*args, "x", 0.0);
               double y = GetDoubleValue(*args, "y", 0.0);
-              pt.x = static_cast<LONG>(x * dpiScale);
-              pt.y = static_cast<LONG>(y * dpiScale);
+              pt.x = static_cast<LONG>(x);
+              pt.y = static_cast<LONG>(y);
             } else {
               RECT rect;
               GetClientRect(hwnd, &rect);

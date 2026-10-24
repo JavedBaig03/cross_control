@@ -14,6 +14,7 @@ import '../widgets/connection_request_dialog.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/key_card.dart';
 import '../widgets/status_pill.dart';
+import '../widgets/device_avatar.dart';
 import 'controller_screen.dart';
 import 'receiver_screen.dart';
 
@@ -479,21 +480,7 @@ class _HomeScreenState extends State<HomeScreen> {
         Expanded(
           child: Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  gradient: AppColors.primaryGradient,
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.cyan.withOpacity(0.35),
-                      blurRadius: 16,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: const Icon(Icons.swap_horizontal_circle_rounded, color: Colors.black, size: 28),
-              ),
+              const DeviceAvatar(size: 46, showBadge: false),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
@@ -772,10 +759,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       child: Row(
                         children: [
-                          Icon(
-                            isMac ? Icons.laptop_mac_rounded : Icons.laptop_windows_rounded,
-                            color: AppColors.cyan,
-                            size: 24,
+                          DeviceAvatar(
+                            size: 34,
+                            isMac: isMac,
                           ),
                           const SizedBox(width: 14),
                           Expanded(
