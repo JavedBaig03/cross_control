@@ -16,47 +16,67 @@ class CrossControlApp extends StatelessWidget {
       title: 'CrossControl',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        brightness: Brightness.dark,
+        useMaterial3: true,
+        brightness: Brightness.light,
         scaffoldBackgroundColor: AppColors.background,
-        colorScheme: const ColorScheme.dark(
-          primary: AppColors.cyan,
-          secondary: AppColors.electricBlue,
+        colorScheme: const ColorScheme.light(
+          primary: AppColors.primary,
+          secondary: AppColors.primaryDark,
           surface: AppColors.surface,
-          background: AppColors.background,
           error: AppColors.coral,
         ),
         fontFamily: 'Inter',
+        dividerTheme: const DividerThemeData(
+          color: AppColors.border,
+          thickness: 1,
+          space: 1,
+        ),
         textTheme: const TextTheme(
           displayLarge: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold),
+          titleLarge: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+          titleMedium: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600),
           bodyLarge: TextStyle(color: AppColors.textPrimary),
           bodyMedium: TextStyle(color: AppColors.textSecondary),
+          bodySmall: TextStyle(color: AppColors.textMuted),
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.cyan,
-            foregroundColor: Colors.black,
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
             elevation: 0,
+            shadowColor: Colors.transparent,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            textStyle: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
         outlinedButtonTheme: OutlinedButtonThemeData(
           style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.cyan,
-            side: const BorderSide(color: AppColors.border),
+            foregroundColor: AppColors.textPrimary,
+            backgroundColor: AppColors.surface,
+            elevation: 0,
+            side: const BorderSide(color: AppColors.borderStrong),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            textStyle: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
         tooltipTheme: TooltipThemeData(
           decoration: BoxDecoration(
-            color: AppColors.surfaceElevated,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.border),
+            color: AppColors.textPrimary,
+            borderRadius: BorderRadius.circular(4),
           ),
-          textStyle: const TextStyle(color: AppColors.textPrimary, fontSize: 12),
+          textStyle: const TextStyle(color: Colors.white, fontSize: 12),
         ),
       ),
       home: const HomeScreen(),

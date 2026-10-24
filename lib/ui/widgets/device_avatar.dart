@@ -21,7 +21,10 @@ class DeviceAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Widget avatarImage = ClipOval(
+    final borderRadius = BorderRadius.circular(4);
+
+    final Widget avatarImage = ClipRRect(
+      borderRadius: borderRadius,
       child: Image.asset(
         imagePath,
         width: size,
@@ -36,10 +39,10 @@ class DeviceAvatar extends StatelessWidget {
             errorBuilder: (_, _, _) => Container(
               width: size,
               height: size,
-              color: AppColors.cyan.withOpacity(0.2),
+              color: AppColors.surfaceElevated,
               child: Icon(
-                isMac == true ? Icons.laptop_mac_rounded : Icons.laptop_windows_rounded,
-                color: AppColors.cyan,
+                isMac == true ? Icons.apple_rounded : Icons.laptop_windows_rounded,
+                color: AppColors.textSecondary,
                 size: size * 0.55,
               ),
             ),
@@ -53,21 +56,14 @@ class DeviceAvatar extends StatelessWidget {
         width: size,
         height: size,
         decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: border ?? Border.all(color: AppColors.cyan.withOpacity(0.35), width: 1.5),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.cyan.withOpacity(0.2),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
+          borderRadius: borderRadius,
+          border: border ?? Border.all(color: AppColors.border, width: 1.0),
         ),
         child: avatarImage,
       );
     }
 
-    final badgeSize = (size * 0.44).clamp(12.0, 20.0);
+    final badgeSize = (size * 0.44).clamp(12.0, 18.0);
 
     return SizedBox(
       width: size,
@@ -79,15 +75,8 @@ class DeviceAvatar extends StatelessWidget {
             width: size,
             height: size,
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: border ?? Border.all(color: AppColors.cyan.withOpacity(0.35), width: 1.5),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.cyan.withOpacity(0.2),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+              borderRadius: borderRadius,
+              border: border ?? Border.all(color: AppColors.border, width: 1.0),
             ),
             child: avatarImage,
           ),
@@ -98,21 +87,15 @@ class DeviceAvatar extends StatelessWidget {
               width: badgeSize,
               height: badgeSize,
               decoration: BoxDecoration(
-                color: const Color(0xFF0F172A),
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.border, width: 1),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.4),
-                    blurRadius: 4,
-                  ),
-                ],
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(2),
+                border: Border.all(color: AppColors.borderStrong, width: 1.0),
               ),
               child: Center(
                 child: Icon(
                   isMac == true ? Icons.apple_rounded : Icons.window_rounded,
-                  size: badgeSize * 0.65,
-                  color: isMac == true ? Colors.white : const Color(0xFF00A4EF),
+                  size: badgeSize * 0.7,
+                  color: AppColors.textPrimary,
                 ),
               ),
             ),

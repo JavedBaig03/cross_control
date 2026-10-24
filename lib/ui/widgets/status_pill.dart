@@ -30,7 +30,7 @@ class _StatusPillState extends State<StatusPill> with SingleTickerProviderStateM
       duration: const Duration(milliseconds: 1400),
     )..repeat(reverse: true);
 
-    _pulseAnim = Tween<double>(begin: 0.4, end: 1.0).animate(
+    _pulseAnim = Tween<double>(begin: 0.5, end: 1.0).animate(
       CurvedAnimation(parent: _animController, curve: Curves.easeInOut),
     );
   }
@@ -44,11 +44,11 @@ class _StatusPillState extends State<StatusPill> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: widget.color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: widget.color.withOpacity(0.35)),
+        color: widget.color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: widget.color.withOpacity(0.25), width: 1.0),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -58,19 +58,12 @@ class _StatusPillState extends State<StatusPill> with SingleTickerProviderStateM
               animation: _pulseAnim,
               builder: (context, child) {
                 return Container(
-                  width: 8,
-                  height: 8,
+                  width: 6,
+                  height: 6,
                   margin: const EdgeInsets.only(right: 6),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: widget.color.withOpacity(_pulseAnim.value),
-                    boxShadow: [
-                      BoxShadow(
-                        color: widget.color.withOpacity(0.6 * _pulseAnim.value),
-                        blurRadius: 6,
-                        spreadRadius: 1,
-                      ),
-                    ],
                   ),
                 );
               },
@@ -78,7 +71,7 @@ class _StatusPillState extends State<StatusPill> with SingleTickerProviderStateM
           else if (widget.icon != null)
             Padding(
               padding: const EdgeInsets.only(right: 6),
-              child: Icon(widget.icon, size: 13, color: widget.color),
+              child: Icon(widget.icon, size: 12, color: widget.color),
             ),
           Text(
             widget.label,
@@ -86,7 +79,7 @@ class _StatusPillState extends State<StatusPill> with SingleTickerProviderStateM
               color: widget.color,
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              letterSpacing: 0.3,
+              letterSpacing: 0.2,
             ),
           ),
         ],

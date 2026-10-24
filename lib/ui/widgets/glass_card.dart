@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 
+/// Clean desktop rectangular panel container.
+/// Provides crisp 1px borders, subtle neutral background, and sharp desktop corners.
 class GlassCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry? padding;
@@ -15,7 +17,7 @@ class GlassCard extends StatelessWidget {
     required this.child,
     this.padding = const EdgeInsets.all(20),
     this.margin,
-    this.borderRadius = 16,
+    this.borderRadius = 4,
     this.borderColor,
     this.backgroundColor,
     this.onTap,
@@ -27,17 +29,17 @@ class GlassCard extends StatelessWidget {
       margin: margin,
       padding: padding,
       decoration: BoxDecoration(
-        color: backgroundColor ?? AppColors.surfaceGlass,
+        color: backgroundColor ?? AppColors.surface,
         borderRadius: BorderRadius.circular(borderRadius),
         border: Border.all(
-          color: borderColor ?? AppColors.border.withOpacity(0.6),
-          width: 1.2,
+          color: borderColor ?? AppColors.border,
+          width: 1.0,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.35),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+            color: const Color(0xFF0F172A).withOpacity(0.04),
+            blurRadius: 3,
+            offset: const Offset(0, 1),
           ),
         ],
       ),
@@ -50,7 +52,7 @@ class GlassCard extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(borderRadius),
-          hoverColor: AppColors.cyan.withOpacity(0.04),
+          hoverColor: AppColors.surfaceElevated,
           child: content,
         ),
       );

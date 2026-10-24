@@ -330,32 +330,45 @@ class _HomeScreenState extends State<HomeScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surfaceElevated,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(4),
+          side: const BorderSide(color: AppColors.borderStrong),
+        ),
         title: const Row(
           children: [
-            Icon(Icons.error_outline_rounded, color: AppColors.coral, size: 24),
-            SizedBox(width: 10),
-            Text('Connection Notice', style: TextStyle(color: AppColors.textPrimary, fontSize: 18)),
+            Icon(Icons.info_outline_rounded, color: AppColors.coral, size: 20),
+            SizedBox(width: 8),
+            Text(
+              'Connection Notice',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
         ),
         content: Text(
           message,
-          style: const TextStyle(color: AppColors.textSecondary, fontSize: 14, height: 1.4),
+          style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 13,
+            height: 1.4,
+          ),
         ),
         actions: [
           if (retryPeer != null)
-            TextButton(
+            OutlinedButton(
               onPressed: () {
                 Navigator.of(ctx).pop();
                 _initiateConnection(retryPeer);
               },
-              child: const Text('Retry', style: TextStyle(color: AppColors.cyan, fontWeight: FontWeight.bold)),
+              child: const Text('Retry'),
             ),
           ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.cyan),
-            child: const Text('OK', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+            child: const Text('OK'),
           ),
         ],
       ),
@@ -397,45 +410,24 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: AppColors.background,
       body: Stack(
         children: [
-          // Background ambient gradient glow
-          Positioned(
-            top: -120,
-            left: MediaQuery.of(context).size.width * 0.3,
-            child: Container(
-              width: 500,
-              height: 350,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    AppColors.cyan.withOpacity(0.08),
-                    Colors.transparent,
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          // Main Scrollable Area
           SafeArea(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 28),
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
               child: Center(
                 child: Container(
-                  constraints: const BoxConstraints(maxWidth: 820),
+                  constraints: const BoxConstraints(maxWidth: 720),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Header: App Name, Subtitle, Network Pill
                       _buildHeader(),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 18),
 
                       if (Platform.isMacOS && !_hasAccessibility) ...[
                         _buildAccessibilityBanner(),
-                        const SizedBox(height: 22),
+                        const SizedBox(height: 16),
                       ],
 
-                      // Section 1: Connect to System (This Laptop's Unique Key)
+                      // Local Device Key Card
                       ValueListenableBuilder<String?>(
                         valueListenable: DiscoveryService().localIpNotifier,
                         builder: (context, localIp, _) {
@@ -446,17 +438,17 @@ class _HomeScreenState extends State<HomeScreen> {
                           );
                         },
                       ),
-                      const SizedBox(height: 22),
+                      const SizedBox(height: 16),
 
-                      // Section 2: Enter Connection Key & Connect Button
+                      // Connect to Remote Device
                       _buildEnterKeyCard(),
-                      const SizedBox(height: 22),
+                      const SizedBox(height: 16),
 
-                      // Section 3: Nearby Laptops on LAN (Auto-Discovery)
+                      // Nearby Discovered Devices
                       _buildDiscoveredPeersCard(),
-                      const SizedBox(height: 22),
+                      const SizedBox(height: 16),
 
-                      // Section 4: System Information & Shortcuts Guide
+                      // Emergency Shortcut Info
                       _buildShortcutAndInfoCard(),
                     ],
                   ),
@@ -465,7 +457,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          // Connecting Modal / Overlay
           if (_isConnecting) _buildConnectingOverlay(),
         ],
       ),
@@ -480,8 +471,8 @@ class _HomeScreenState extends State<HomeScreen> {
         Expanded(
           child: Row(
             children: [
-              const DeviceAvatar(size: 46, showBadge: false),
-              const SizedBox(width: 16),
+              const DeviceAvatar(size: 32, showBadge: false),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -490,18 +481,16 @@ class _HomeScreenState extends State<HomeScreen> {
                       'CrossControl',
                       style: TextStyle(
                         color: AppColors.textPrimary,
-                        fontSize: 28,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -0.5,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.3,
                       ),
                     ),
-                    const SizedBox(height: 2),
                     Text(
-                      'Cross-Platform Keyboard & Mouse Control for macOS & Windows',
+                      'Cross-Platform Keyboard & Mouse Sharing',
                       style: TextStyle(
                         color: AppColors.textSecondary.withOpacity(0.9),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
+                        fontSize: 12,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -511,9 +500,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
-        const SizedBox(width: 16),
-
-        // Network Status Pill
+        const SizedBox(width: 12),
         ValueListenableBuilder<String?>(
           valueListenable: DiscoveryService().localIpNotifier,
           builder: (context, localIp, _) {
@@ -530,79 +517,64 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildEnterKeyCard() {
     return GlassCard(
-      padding: const EdgeInsets.all(22),
+      borderRadius: 4,
+      borderColor: AppColors.borderStrong,
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppColors.electricBlue.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.dialpad_rounded, color: AppColors.electricBlue, size: 20),
-              ),
-              const SizedBox(width: 12),
-              const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'REMOTE SYSTEM',
-                    style: TextStyle(
-                      color: AppColors.textMuted,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.1,
-                    ),
-                  ),
-                  SizedBox(height: 2),
-                  Text(
-                    'Enter Connection Key',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ],
+          const Text(
+            'Enter Connection Key',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 2),
+          const Text(
+            'Connect to a remote laptop by entering its unique key',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 14),
 
           // Input Row with Paste and Connect Button
           Row(
             children: [
               Expanded(
                 child: Container(
+                  height: 42,
                   decoration: BoxDecoration(
-                    color: AppColors.background.withOpacity(0.8),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.border),
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: AppColors.borderStrong),
                   ),
                   child: TextField(
                     controller: _keyInputController,
                     textCapitalization: TextCapitalization.characters,
                     style: const TextStyle(
                       color: AppColors.textPrimary,
-                      fontSize: 18,
+                      fontSize: 15,
                       fontWeight: FontWeight.w700,
-                      letterSpacing: 2.0,
+                      letterSpacing: 1.5,
                       fontFamily: 'Courier',
                     ),
                     decoration: InputDecoration(
                       hintText: 'e.g. CC-4829',
-                      hintStyle: TextStyle(
-                        color: AppColors.textMuted.withOpacity(0.6),
-                        fontSize: 16,
-                        letterSpacing: 1.0,
+                      hintStyle: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 14,
+                        letterSpacing: 0.5,
+                        fontFamily: 'Inter',
                       ),
-                      prefixIcon: const Icon(Icons.vpn_key_outlined, color: AppColors.textMuted, size: 20),
+                      prefixIcon: const Icon(Icons.vpn_key_outlined, color: AppColors.textMuted, size: 18),
                       suffixIcon: IconButton(
-                        icon: const Icon(Icons.paste_rounded, color: AppColors.textSecondary, size: 20),
+                        icon: const Icon(Icons.paste_rounded, color: AppColors.textSecondary, size: 18),
                         tooltip: 'Paste from clipboard',
+                        padding: EdgeInsets.zero,
                         onPressed: () async {
                           final data = await Clipboard.getData('text/plain');
                           if (data?.text != null) {
@@ -611,44 +583,32 @@ class _HomeScreenState extends State<HomeScreen> {
                         },
                       ),
                       border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     ),
                     onSubmitted: (_) => _initiateConnection(),
                   ),
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 10),
 
-              // Connect Button (Section 1)
-              ElevatedButton(
-                onPressed: _isConnecting ? null : () => _initiateConnection(),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
-                  backgroundColor: AppColors.cyan,
-                  elevation: 6,
-                  shadowColor: AppColors.cyan.withOpacity(0.35),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.link_rounded, color: Colors.black, size: 20),
-                    SizedBox(width: 8),
-                    Text(
-                      'Connect',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
+              // Connect Button
+              SizedBox(
+                height: 42,
+                child: ElevatedButton.icon(
+                  onPressed: _isConnecting ? null : () => _initiateConnection(),
+                  icon: const Icon(Icons.link_rounded, size: 16),
+                  label: const Text('Connect'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           const Text(
-            'Both laptops must be connected to the same local network (Wi-Fi or Ethernet).',
+            'Both devices must be connected to the same local network (Wi-Fi or Ethernet).',
             style: TextStyle(color: AppColors.textMuted, fontSize: 12),
           ),
         ],
@@ -661,80 +621,70 @@ class _HomeScreenState extends State<HomeScreen> {
       valueListenable: DiscoveryService().peersNotifier,
       builder: (context, peers, _) {
         return GlassCard(
-          padding: const EdgeInsets.all(22),
+          borderRadius: 4,
+          borderColor: AppColors.borderStrong,
+          padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: AppColors.neonPurple.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(10),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Nearby Devices',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                        child: const Icon(Icons.radar_rounded, color: AppColors.neonPurple, size: 20),
-                      ),
-                      const SizedBox(width: 12),
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'LOCAL NETWORK DISCOVERY',
-                            style: TextStyle(
-                              color: AppColors.textMuted,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 1.1,
-                            ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Discovered on your local Wi-Fi or Ethernet network',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
                           ),
-                          SizedBox(height: 2),
-                          Text(
-                            'Nearby Laptops on Local Wi-Fi',
-                            style: TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
                   ),
+                  const SizedBox(width: 12),
                   StatusPill(
-                    label: '${peers.length} detected',
-                    color: peers.isNotEmpty ? AppColors.emerald : AppColors.cyan,
-                    isPulsing: true,
+                    label: peers.isNotEmpty ? '${peers.length} available' : 'Searching',
+                    color: peers.isNotEmpty ? AppColors.emerald : AppColors.textMuted,
+                    isPulsing: peers.isEmpty,
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
 
               if (peers.isEmpty)
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
                   decoration: BoxDecoration(
-                    color: AppColors.background.withOpacity(0.5),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.border.withOpacity(0.5)),
+                    color: AppColors.surfaceElevated,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: AppColors.border),
                   ),
                   child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan),
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
                       ),
-                      SizedBox(width: 14),
+                      SizedBox(width: 12),
                       Flexible(
                         child: Text(
-                          'Scanning local Wi-Fi for other laptops running CrossControl...',
-                          style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                          'Scanning local network for other devices running CrossControl...',
+                          style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                         ),
                       ),
                     ],
@@ -745,25 +695,25 @@ class _HomeScreenState extends State<HomeScreen> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: peers.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     final peer = peers[index];
                     final isMac = peer.os.toLowerCase().contains('mac');
 
                     return Container(
-                      padding: const EdgeInsets.all(14),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                       decoration: BoxDecoration(
-                        color: AppColors.background.withOpacity(0.7),
-                        borderRadius: BorderRadius.circular(12),
+                        color: AppColors.surfaceElevated,
+                        borderRadius: BorderRadius.circular(4),
                         border: Border.all(color: AppColors.border),
                       ),
                       child: Row(
                         children: [
                           DeviceAvatar(
-                            size: 34,
+                            size: 30,
                             isMac: isMac,
                           ),
-                          const SizedBox(width: 14),
+                          const SizedBox(width: 12),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -772,41 +722,40 @@ class _HomeScreenState extends State<HomeScreen> {
                                   peer.name,
                                   style: const TextStyle(
                                     color: AppColors.textPrimary,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  'Key: ${peer.key} • IP: ${peer.ip}',
+                                  '${isMac ? "macOS" : "Windows"} • Key: ${peer.key} • ${peer.ip}',
                                   style: const TextStyle(
-                                    color: AppColors.textMuted,
-                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                    fontSize: 11,
                                     fontFamily: 'Courier',
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                          ElevatedButton(
+                          OutlinedButton(
                             onPressed: () {
                               _keyInputController.text = peer.key;
                               _initiateConnection(peer);
                             },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.cyan.withOpacity(0.15),
-                              elevation: 0,
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              side: const BorderSide(color: AppColors.borderStrong),
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                side: BorderSide(color: AppColors.cyan.withOpacity(0.4)),
+                                borderRadius: BorderRadius.circular(4),
                               ),
                             ),
                             child: const Text(
                               'Connect',
                               style: TextStyle(
-                                color: AppColors.cyan,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
                               ),
                             ),
                           ),
@@ -825,57 +774,54 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildShortcutAndInfoCard() {
     final shortcutLabel = StorageService().shortcutLabel;
 
-    return GlassCard(
-      padding: const EdgeInsets.all(20),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceElevated,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: AppColors.border),
+      ),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: AppColors.amber.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(Icons.keyboard_command_key_rounded, color: AppColors.amber, size: 22),
-          ),
-          const SizedBox(width: 16),
+          const Icon(Icons.info_outline_rounded, size: 16, color: AppColors.textMuted),
+          const SizedBox(width: 10),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    const Text(
-                      'Emergency Pause / Resume Shortcut:',
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: AppColors.background,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: AppColors.amber.withOpacity(0.5)),
-                      ),
-                      child: Text(
-                        shortcutLabel,
-                        style: const TextStyle(
-                          color: AppColors.amber,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Courier',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
                 const Text(
-                  'Triggering this shortcut immediately pauses remote control and restores local mouse and keyboard operation.',
-                  style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+                  'Emergency Pause Shortcut:',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(3),
+                    border: Border.all(color: AppColors.borderStrong),
+                  ),
+                  child: Text(
+                    shortcutLabel,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Courier',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    '— Press to pause control and release pointer',
+                    style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ],
             ),
@@ -888,60 +834,70 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildConnectingOverlay() {
     return Positioned.fill(
       child: Container(
-        color: Colors.black.withOpacity(0.75),
+        color: const Color(0xFF0F172A).withOpacity(0.4),
         child: Center(
-          child: GlassCard(
-            borderColor: AppColors.cyan.withOpacity(0.5),
-            backgroundColor: AppColors.surfaceElevated.withOpacity(0.96),
-            padding: const EdgeInsets.all(32),
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(
-                    width: 48,
-                    height: 48,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 3,
-                      color: AppColors.cyan,
-                    ),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 380),
+            padding: const EdgeInsets.all(28),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: AppColors.borderStrong),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF0F172A).withOpacity(0.12),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    color: AppColors.primary,
                   ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'Connecting to Remote Laptop',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Connecting',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
                   ),
-                  const SizedBox(height: 10),
-                  Text(
-                    _statusMessage ?? 'Waiting for approval from the other laptop...',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 13,
-                      height: 1.4,
-                    ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _statusMessage ?? 'Waiting for approval from the remote device...',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    height: 1.4,
                   ),
-                  const SizedBox(height: 24),
-                  OutlinedButton(
-                    onPressed: () {
-                      NetworkService().disconnect();
-                      setState(() {
-                        _isConnecting = false;
-                        _statusMessage = null;
-                      });
-                    },
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide(color: AppColors.coral.withOpacity(0.5)),
-                    ),
-                    child: const Text('Cancel Request', style: TextStyle(color: AppColors.coral)),
+                ),
+                const SizedBox(height: 20),
+                OutlinedButton(
+                  onPressed: () {
+                    NetworkService().disconnect();
+                    setState(() {
+                      _isConnecting = false;
+                      _statusMessage = null;
+                    });
+                  },
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppColors.borderStrong),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                   ),
-                ],
-              ),
+                  child: const Text('Cancel Request', style: TextStyle(color: AppColors.coral, fontSize: 12)),
+                ),
+              ],
             ),
           ),
         ),
@@ -950,49 +906,53 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildAccessibilityBanner() {
-    return GlassCard(
-      borderColor: AppColors.amber.withOpacity(0.6),
-      backgroundColor: AppColors.amber.withOpacity(0.08),
-      padding: const EdgeInsets.all(18),
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.amberLight.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: AppColors.amber.withOpacity(0.4)),
+      ),
       child: Row(
         children: [
-          const Icon(Icons.security_update_warning_rounded, color: AppColors.amber, size: 28),
-          const SizedBox(width: 16),
+          const Icon(Icons.warning_amber_rounded, color: AppColors.amber, size: 22),
+          const SizedBox(width: 12),
           const Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'macOS Accessibility Permission Needed',
+                  'macOS Accessibility Permission Required',
                   style: TextStyle(
-                    color: AppColors.amber,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                SizedBox(height: 4),
+                SizedBox(height: 2),
                 Text(
-                  'To allow CrossControl to simulate mouse and keyboard input on this Mac when controlled by another laptop, enable it in System Settings.',
+                  'Required to simulate keyboard and pointer events on this Mac.',
                   style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 16),
-          ElevatedButton(
+          const SizedBox(width: 12),
+          OutlinedButton(
             onPressed: () async {
               await NativeInputService().requestAccessibilityPermission();
               await NativeInputService().openAccessibilitySettings();
               final trusted = await NativeInputService().checkAccessibilityPermission();
               if (mounted) setState(() => _hasAccessibility = trusted);
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.amber,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              side: const BorderSide(color: AppColors.amber),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
             ),
             child: const Text(
-              'Enable Permission',
-              style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 13),
+              'Open Settings',
+              style: TextStyle(color: AppColors.amber, fontWeight: FontWeight.w600, fontSize: 12),
             ),
           ),
         ],

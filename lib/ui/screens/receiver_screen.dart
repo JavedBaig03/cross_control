@@ -147,15 +147,15 @@ class ReceiverScreenState extends State<ReceiverScreen> {
         children: [
           // Top HUD
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-            decoration: BoxDecoration(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            decoration: const BoxDecoration(
               color: AppColors.surface,
-              border: const Border(bottom: BorderSide(color: AppColors.border)),
+              border: Border(bottom: BorderSide(color: AppColors.borderStrong)),
             ),
             child: Row(
               children: [
                 DeviceAvatar(
-                  size: 36,
+                  size: 32,
                   isMac: isMac,
                   showPlatformBadge: true,
                 ),
@@ -169,22 +169,22 @@ class ReceiverScreenState extends State<ReceiverScreen> {
                           'Controlled by ${widget.request.deviceName}',
                           style: const TextStyle(
                             color: AppColors.textPrimary,
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         const SizedBox(width: 8),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                           decoration: BoxDecoration(
                             color: AppColors.surfaceElevated,
-                            borderRadius: BorderRadius.circular(4),
+                            borderRadius: BorderRadius.circular(3),
                             border: Border.all(color: AppColors.border),
                           ),
                           child: Text(
                             widget.request.fromKey,
                             style: const TextStyle(
-                              color: AppColors.cyan,
+                              color: AppColors.textSecondary,
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
                               fontFamily: 'Courier',
@@ -194,9 +194,9 @@ class ReceiverScreenState extends State<ReceiverScreen> {
                       ],
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      'This laptop\'s display remains local. Keyboard & pointer inputs are being shared.',
-                      style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+                    const Text(
+                      'This screen remains local • Keyboard and pointer inputs are shared',
+                      style: TextStyle(color: AppColors.textMuted, fontSize: 11),
                     ),
                   ],
                 ),
@@ -204,28 +204,26 @@ class ReceiverScreenState extends State<ReceiverScreen> {
 
                 // Status pill
                 StatusPill(
-                  label: _isRemotePaused ? 'PAUSED BY CONTROLLER' : 'RECEIVING INPUT',
+                  label: _isRemotePaused ? 'PAUSED' : 'RECEIVING INPUT',
                   color: _isRemotePaused ? AppColors.amber : AppColors.emerald,
                   isPulsing: !_isRemotePaused,
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 12),
 
-                // Disconnect / Revoke button
-                ElevatedButton.icon(
+                // Revoke button
+                OutlinedButton(
                   onPressed: () {
                     NetworkService().disconnect();
                     widget.onDisconnect();
                   },
-                  icon: const Icon(Icons.stop_circle_rounded, size: 16, color: Colors.white),
-                  label: const Text(
-                    'Revoke Control',
-                    style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppColors.borderStrong),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                   ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.coral,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  child: const Text(
+                    'Revoke Control',
+                    style: TextStyle(color: AppColors.coral, fontSize: 12, fontWeight: FontWeight.w600),
                   ),
                 ),
               ],
@@ -235,97 +233,86 @@ class ReceiverScreenState extends State<ReceiverScreen> {
           // Main Content
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(32),
+              padding: const EdgeInsets.all(28),
               child: Center(
                 child: Container(
-                  constraints: const BoxConstraints(maxWidth: 860),
+                  constraints: const BoxConstraints(maxWidth: 720),
                   child: Column(
                     children: [
                       // Accessibility Warning Banner if needed on macOS
                       if (Platform.isMacOS && !_hasAccessibility) ...[
                         _buildAccessibilityAlert(),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 18),
                       ],
 
                       // Session Overview Card
                       GlassCard(
-                        borderColor: AppColors.neonPurple.withOpacity(0.4),
-                        padding: const EdgeInsets.all(28),
+                        borderRadius: 4,
+                        borderColor: AppColors.borderStrong,
+                        padding: const EdgeInsets.all(20),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
                               children: [
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.neonPurple.withOpacity(0.12),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.cast_connected_rounded,
-                                    color: AppColors.neonPurple,
-                                    size: 28,
-                                  ),
+                                const Icon(
+                                  Icons.desktop_windows_outlined,
+                                  color: AppColors.textSecondary,
+                                  size: 20,
                                 ),
-                                const SizedBox(width: 16),
+                                const SizedBox(width: 10),
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     const Text(
-                                      'ACTIVE CONTROL SESSION',
+                                      'Active Control Session',
                                       style: TextStyle(
-                                        color: AppColors.neonPurple,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 1.2,
+                                        color: AppColors.textPrimary,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
                                       ),
                                     ),
-                                    const SizedBox(height: 4),
                                     Text(
-                                      '${widget.request.deviceName} is sharing keyboard and mouse control',
+                                      '${widget.request.deviceName} is forwarding input over local network',
                                       style: const TextStyle(
-                                        color: AppColors.textPrimary,
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.textSecondary,
+                                        fontSize: 12,
                                       ),
                                     ),
                                   ],
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 18),
 
                             // 4 Stats Cards Grid
                             Row(
                               children: [
-                                Expanded(child: _buildStatCard('Mouse Moves', '$_mouseMoveCount', Icons.mouse_rounded, AppColors.cyan)),
-                                const SizedBox(width: 12),
-                                Expanded(child: _buildStatCard('Clicks', '$_clickCount', Icons.touch_app_rounded, AppColors.emerald)),
-                                const SizedBox(width: 12),
-                                Expanded(child: _buildStatCard('Keystrokes', '$_keyCount', Icons.keyboard_rounded, AppColors.neonPurple)),
-                                const SizedBox(width: 12),
-                                Expanded(child: _buildStatCard('Scrolls', '$_scrollCount', Icons.swap_vert_rounded, AppColors.amber)),
+                                Expanded(child: _buildStatCard('Mouse Moves', '$_mouseMoveCount', Icons.mouse_rounded)),
+                                const SizedBox(width: 10),
+                                Expanded(child: _buildStatCard('Clicks', '$_clickCount', Icons.touch_app_rounded)),
+                                const SizedBox(width: 10),
+                                Expanded(child: _buildStatCard('Keystrokes', '$_keyCount', Icons.keyboard_rounded)),
+                                const SizedBox(width: 10),
+                                Expanded(child: _buildStatCard('Scrolls', '$_scrollCount', Icons.swap_vert_rounded)),
                               ],
                             ),
 
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 18),
 
                             // Real-time Event Feed
                             Container(
                               width: double.infinity,
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                               decoration: BoxDecoration(
-                                color: AppColors.background.withOpacity(0.7),
-                                borderRadius: BorderRadius.circular(10),
+                                color: AppColors.surfaceElevated,
+                                borderRadius: BorderRadius.circular(4),
                                 border: Border.all(color: AppColors.border),
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(Icons.flash_on_rounded, size: 16, color: AppColors.cyan),
-                                  const SizedBox(width: 10),
                                   const Text(
-                                    'Live Event Stream:',
+                                    'Live Event:',
                                     style: TextStyle(
                                       color: AppColors.textSecondary,
                                       fontSize: 12,
@@ -338,7 +325,7 @@ class ReceiverScreenState extends State<ReceiverScreen> {
                                       _lastEventDescription,
                                       style: const TextStyle(
                                         color: AppColors.textPrimary,
-                                        fontSize: 13,
+                                        fontSize: 12,
                                         fontFamily: 'Courier',
                                       ),
                                     ),
@@ -349,21 +336,27 @@ class ReceiverScreenState extends State<ReceiverScreen> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 16),
 
                       // Information Card
-                      GlassCard(
-                        padding: const EdgeInsets.all(20),
-                        child: Row(
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceElevated,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: const Row(
                           children: [
-                            const Icon(Icons.info_outline_rounded, color: AppColors.textSecondary, size: 20),
-                            const SizedBox(width: 14),
-                            const Expanded(
+                            Icon(Icons.info_outline_rounded, color: AppColors.textMuted, size: 16),
+                            SizedBox(width: 10),
+                            Expanded(
                               child: Text(
-                                'You can take back mouse/keyboard control locally at any moment by moving your mouse or clicking "Revoke Control". The controller can also pause and resume using Command + Control + Q.',
+                                'You can take back mouse and keyboard control at any moment by moving your mouse or clicking "Revoke Control".',
                                 style: TextStyle(
                                   color: AppColors.textSecondary,
-                                  fontSize: 13,
+                                  fontSize: 12,
                                   height: 1.4,
                                 ),
                               ),
@@ -382,35 +375,39 @@ class ReceiverScreenState extends State<ReceiverScreen> {
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+  Widget _buildStatCard(String title, String value, IconData icon) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppColors.background.withOpacity(0.6),
-        borderRadius: BorderRadius.circular(12),
+        color: AppColors.surfaceElevated,
+        borderRadius: BorderRadius.circular(4),
         border: Border.all(color: AppColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20, color: color),
-          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Icon(icon, size: 14, color: AppColors.textMuted),
+            ],
+          ),
+          const SizedBox(height: 8),
           Text(
             value,
-            style: TextStyle(
-              color: color,
-              fontSize: 22,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 18,
               fontWeight: FontWeight.bold,
               fontFamily: 'Courier',
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            title,
-            style: const TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -419,14 +416,17 @@ class ReceiverScreenState extends State<ReceiverScreen> {
   }
 
   Widget _buildAccessibilityAlert() {
-    return GlassCard(
-      borderColor: AppColors.amber.withOpacity(0.6),
-      backgroundColor: AppColors.amber.withOpacity(0.08),
-      padding: const EdgeInsets.all(18),
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.amberLight.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: AppColors.amber.withOpacity(0.4)),
+      ),
       child: Row(
         children: [
-          const Icon(Icons.warning_amber_rounded, color: AppColors.amber, size: 28),
-          const SizedBox(width: 16),
+          const Icon(Icons.warning_amber_rounded, color: AppColors.amber, size: 22),
+          const SizedBox(width: 12),
           const Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -434,34 +434,35 @@ class ReceiverScreenState extends State<ReceiverScreen> {
                 Text(
                   'macOS Accessibility Permission Required',
                   style: TextStyle(
-                    color: AppColors.amber,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                SizedBox(height: 4),
+                SizedBox(height: 2),
                 Text(
-                  'To allow CrossControl to simulate mouse and keyboard inputs globally on this Mac, enable CrossControl under System Settings > Privacy & Security > Accessibility.',
+                  'To simulate pointer and keyboard inputs globally on this Mac, enable CrossControl under Accessibility settings.',
                   style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 16),
-          ElevatedButton(
+          const SizedBox(width: 12),
+          OutlinedButton(
             onPressed: () async {
               await NativeInputService().requestAccessibilityPermission();
               await NativeInputService().openAccessibilitySettings();
               await Future.delayed(const Duration(seconds: 1));
               _checkAccessibility();
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.amber,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              side: const BorderSide(color: AppColors.amber),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
             ),
             child: const Text(
-              'Enable Permission',
-              style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 13),
+              'Open Settings',
+              style: TextStyle(color: AppColors.amber, fontWeight: FontWeight.w600, fontSize: 12),
             ),
           ),
         ],

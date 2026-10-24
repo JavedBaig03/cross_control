@@ -329,44 +329,36 @@ class _ControllerScreenState extends State<ControllerScreen> {
 
               // Small unobtrusive floating shortcut pill at the top (IgnorePointer ensures 100% mouse transparency)
               Positioned(
-                top: 20,
+                top: 16,
                 left: 0,
                 right: 0,
                 child: IgnorePointer(
                   child: Center(
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF101622).withOpacity(0.85),
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(color: Colors.white.withOpacity(0.12)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.3),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
+                        color: const Color(0xFF0F172A).withOpacity(0.85),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: const Color(0xFF334155)),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Container(
-                            width: 7,
-                            height: 7,
+                            width: 6,
+                            height: 6,
                             decoration: const BoxDecoration(
                               color: AppColors.emerald,
                               shape: BoxShape.circle,
                             ),
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: 8),
                           Text(
                             'Controlling ${widget.peer.name}  •  Press $shortcutText to pause',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
+                            style: const TextStyle(
+                              color: Colors.white,
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
-                              letterSpacing: 0.2,
                             ),
                           ),
                         ],
@@ -404,16 +396,10 @@ class _ControllerScreenState extends State<ControllerScreen> {
 
   Widget _buildTopBar(String shortcutText) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-      decoration: BoxDecoration(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      decoration: const BoxDecoration(
         color: AppColors.surface,
-        border: const Border(bottom: BorderSide(color: AppColors.border)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 8,
-          ),
-        ],
+        border: Border(bottom: BorderSide(color: AppColors.borderStrong)),
       ),
       child: Row(
         children: [
@@ -421,7 +407,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
           Row(
             children: [
               DeviceAvatar(
-                size: 36,
+                size: 32,
                 isMac: widget.peer.os.contains('mac'),
                 showPlatformBadge: true,
               ),
@@ -435,22 +421,22 @@ class _ControllerScreenState extends State<ControllerScreen> {
                         widget.peer.name,
                         style: const TextStyle(
                           color: AppColors.textPrimary,
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                       const SizedBox(width: 8),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                         decoration: BoxDecoration(
                           color: AppColors.surfaceElevated,
-                          borderRadius: BorderRadius.circular(4),
+                          borderRadius: BorderRadius.circular(3),
                           border: Border.all(color: AppColors.border),
                         ),
                         child: Text(
                           widget.peer.key,
                           style: const TextStyle(
-                            color: AppColors.cyan,
+                            color: AppColors.textSecondary,
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
                             fontFamily: 'Courier',
@@ -461,10 +447,10 @@ class _ControllerScreenState extends State<ControllerScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Direct Control Stream (${widget.peer.ip})',
+                    'Direct Stream • ${widget.peer.ip}',
                     style: const TextStyle(
                       color: AppColors.textMuted,
-                      fontSize: 12,
+                      fontSize: 11,
                     ),
                   ),
                 ],
@@ -486,67 +472,66 @@ class _ControllerScreenState extends State<ControllerScreen> {
               );
             },
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
 
           ValueListenableBuilder<int>(
             valueListenable: NetworkService().eventsSentNotifier,
             builder: (context, sent, _) {
               return StatusPill(
                 label: '$sent events',
-                color: AppColors.cyan,
+                color: AppColors.textSecondary,
                 icon: Icons.sync_alt_rounded,
                 isPulsing: false,
               );
             },
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
 
           // Control state pill
           const StatusPill(
-            label: 'PAUSED (LOCAL MODE)',
+            label: 'PAUSED',
             color: AppColors.amber,
             isPulsing: false,
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 14),
 
           // Resume Button
           ElevatedButton.icon(
             onPressed: _togglePauseControl,
-            icon: const Icon(Icons.play_arrow_rounded, size: 18, color: Colors.black),
+            icon: const Icon(Icons.play_arrow_rounded, size: 16, color: Colors.white),
             label: Text(
               'Resume ($shortcutText)',
               style: const TextStyle(
-                color: Colors.black,
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
             ),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.emerald,
+              backgroundColor: AppColors.primary,
               elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
 
           // Disconnect Button
-          OutlinedButton.icon(
+          OutlinedButton(
             onPressed: () {
               NativeInputService().setFullScreen(false);
               NativeInputService().setLocalInputInterception(false);
               NetworkService().disconnect();
               widget.onDisconnect();
             },
-            icon: const Icon(Icons.close_rounded, size: 16, color: AppColors.coral),
-            label: const Text(
-              'Disconnect',
-              style: TextStyle(color: AppColors.coral, fontSize: 13, fontWeight: FontWeight.w600),
-            ),
             style: OutlinedButton.styleFrom(
-              side: BorderSide(color: AppColors.coral.withOpacity(0.5)),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              side: const BorderSide(color: AppColors.borderStrong),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+            ),
+            child: const Text(
+              'Disconnect',
+              style: TextStyle(color: AppColors.coral, fontSize: 12, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -556,107 +541,102 @@ class _ControllerScreenState extends State<ControllerScreen> {
 
   Widget _buildPausedCard(String shortcutText) {
     return GlassCard(
-      borderColor: AppColors.amber.withOpacity(0.5),
-      backgroundColor: AppColors.surfaceElevated.withOpacity(0.95),
-      padding: const EdgeInsets.all(36),
+      borderRadius: 4,
+      borderColor: AppColors.borderStrong,
+      backgroundColor: AppColors.surface,
+      padding: const EdgeInsets.all(28),
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 480),
+        constraints: const BoxConstraints(maxWidth: 440),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.amber.withOpacity(0.15),
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.amber.withOpacity(0.4)),
-              ),
-              child: const Icon(Icons.pause_circle_rounded, color: AppColors.amber, size: 44),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Remote Control Paused',
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              'Your keyboard, mouse, and trackpad have returned to normal local operation on this laptop.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 14,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Press $shortcutText to resume remote control at any time.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: AppColors.cyan,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Sensitivity setting while paused
             Row(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.speed_rounded, size: 16, color: AppColors.textSecondary),
-                const SizedBox(width: 8),
-                const Text(
-                  'Pointer Speed:',
-                  style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-                ),
-                SizedBox(
-                  width: 140,
-                  child: Slider(
-                    value: _sensitivity,
-                    min: 0.5,
-                    max: 2.5,
-                    divisions: 8,
-                    activeColor: AppColors.cyan,
-                    inactiveColor: AppColors.border,
-                    onChanged: (val) {
-                      setState(() => _sensitivity = val);
-                    },
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.amberLight,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: AppColors.amber.withOpacity(0.3)),
                   ),
+                  child: const Icon(Icons.pause_rounded, color: AppColors.amber, size: 20),
                 ),
-                Text(
-                  '${_sensitivity.toStringAsFixed(1)}x',
-                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
+                const SizedBox(width: 12),
+                const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Remote Control Paused',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Local input restored to this machine',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
+            Text(
+              'Your keyboard and pointer inputs are operating locally. Press $shortcutText to resume remote control.',
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 13,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 18),
 
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _togglePauseControl,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.emerald,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            // Sensitivity setting while paused
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceElevated,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                children: [
+                  const Text(
+                    'Pointer Speed:',
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
                   ),
-                  icon: const Icon(Icons.play_arrow_rounded, color: Colors.black, size: 20),
-                  label: Text(
-                    'Resume Control ($shortcutText)',
-                    style: const TextStyle(
-                      color: Colors.black,
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Slider(
+                      value: _sensitivity,
+                      min: 0.5,
+                      max: 2.5,
+                      divisions: 8,
+                      activeColor: AppColors.primary,
+                      inactiveColor: AppColors.borderStrong,
+                      onChanged: (val) {
+                        setState(() => _sensitivity = val);
+                      },
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
+                  Text(
+                    '${_sensitivity.toStringAsFixed(1)}x',
+                    style: const TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 22),
+
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
                 OutlinedButton(
                   onPressed: () {
                     NativeInputService().setFullScreen(false);
@@ -665,13 +645,33 @@ class _ControllerScreenState extends State<ControllerScreen> {
                     widget.onDisconnect();
                   },
                   style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: AppColors.coral.withOpacity(0.6)),
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    side: const BorderSide(color: AppColors.borderStrong),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                   ),
                   child: const Text(
                     'Disconnect',
-                    style: TextStyle(color: AppColors.coral, fontSize: 14, fontWeight: FontWeight.w600),
+                    style: TextStyle(color: AppColors.coral, fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                ElevatedButton.icon(
+                  onPressed: _togglePauseControl,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  ),
+                  icon: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 16),
+                  label: Text(
+                    'Resume ($shortcutText)',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ],

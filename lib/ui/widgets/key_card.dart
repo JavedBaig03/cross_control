@@ -31,14 +31,21 @@ class _KeyCardState extends State<KeyCard> {
       SnackBar(
         content: Row(
           children: [
-            const Icon(Icons.check_circle, color: AppColors.emerald, size: 20),
+            const Icon(Icons.check_circle, color: AppColors.emerald, size: 18),
             const SizedBox(width: 8),
-            Text('Connection key copied: ${widget.connectionKey}'),
+            Text(
+              'Connection key copied: ${widget.connectionKey}',
+              style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+            ),
           ],
         ),
-        backgroundColor: AppColors.surfaceElevated,
+        backgroundColor: AppColors.surface,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 2),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(4),
+          side: const BorderSide(color: AppColors.borderStrong),
+        ),
       ),
     );
     Future.delayed(const Duration(seconds: 2), () {
@@ -48,130 +55,160 @@ class _KeyCardState extends State<KeyCard> {
 
   @override
   Widget build(BuildContext context) {
+    final isMac = Platform.isMacOS;
+
     return GlassCard(
-      borderColor: AppColors.cyan.withOpacity(0.35),
-      padding: const EdgeInsets.all(22),
+      borderRadius: 4,
+      borderColor: AppColors.borderStrong,
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Section Title Row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  DeviceAvatar(
-                    size: 36,
-                    isMac: Platform.isMacOS,
-                  ),
-                  const SizedBox(width: 12),
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'CONNECT TO SYSTEM',
-                        style: TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 1.1,
-                        ),
+              Expanded(
+                child: Row(
+                  children: [
+                    DeviceAvatar(
+                      size: 32,
+                      isMac: isMac,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'CONNECT TO SYSTEM',
+                            style: TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'This Device (${widget.deviceName})',
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                       ),
-                      SizedBox(height: 2),
-                      Text(
-                        'This Laptop\'s Connection Key',
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(width: 12),
               // Copy Button
-              ElevatedButton.icon(
+              OutlinedButton.icon(
                 onPressed: _copyKey,
                 icon: Icon(
                   _copied ? Icons.check_rounded : Icons.copy_rounded,
-                  size: 16,
-                  color: _copied ? AppColors.emerald : AppColors.cyan,
+                  size: 15,
+                  color: _copied ? AppColors.emerald : AppColors.textPrimary,
                 ),
                 label: Text(
-                  _copied ? 'Copied!' : 'Copy Key',
+                  _copied ? 'Copied' : 'Copy Key',
                   style: TextStyle(
-                    color: _copied ? AppColors.emerald : AppColors.cyan,
-                    fontSize: 13,
+                    color: _copied ? AppColors.emerald : AppColors.textPrimary,
+                    fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _copied
-                      ? AppColors.emerald.withOpacity(0.15)
-                      : AppColors.cyan.withOpacity(0.12),
-                  elevation: 0,
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  side: BorderSide(
+                    color: _copied ? AppColors.emerald : AppColors.borderStrong,
+                  ),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: BorderSide(
-                      color: _copied
-                          ? AppColors.emerald.withOpacity(0.4)
-                          : AppColors.cyan.withOpacity(0.3),
-                    ),
+                    borderRadius: BorderRadius.circular(4),
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 18),
-          // Large stylized Key Display
+          const SizedBox(height: 16),
+
+          // Key Display Box
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
             decoration: BoxDecoration(
-              color: AppColors.background.withOpacity(0.8),
-              borderRadius: BorderRadius.circular(12),
+              color: AppColors.surfaceElevated,
+              borderRadius: BorderRadius.circular(4),
               border: Border.all(color: AppColors.border),
             ),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                SelectableText(
-                  widget.connectionKey,
-                  style: const TextStyle(
-                    color: AppColors.cyan,
-                    fontSize: 32,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 4.0,
-                    fontFamily: 'Courier',
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'CONNECTION KEY',
+                      style: TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    SelectableText(
+                      widget.connectionKey,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 2.5,
+                        fontFamily: 'Courier',
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  'Share to allow control',
+                  style: TextStyle(
+                    color: AppColors.textMuted.withOpacity(0.8),
+                    fontSize: 12,
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 14),
-          // Device info & local IP row
+          const SizedBox(height: 12),
+
+          // Metadata row
           Row(
             children: [
-              DeviceAvatar(size: 18, isMac: Platform.isMacOS, showBadge: false),
+              const Icon(Icons.wifi_rounded, size: 14, color: AppColors.textMuted),
               const SizedBox(width: 6),
               Text(
-                widget.deviceName,
+                'Local IP: ${widget.localIp}',
                 style: const TextStyle(
                   color: AppColors.textSecondary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
+                  fontSize: 12,
+                  fontFamily: 'Courier',
                 ),
               ),
               const SizedBox(width: 16),
-              const Icon(Icons.wifi_rounded, size: 15, color: AppColors.textSecondary),
-              const SizedBox(width: 6),
-              Text(
-                'LAN IP: ${widget.localIp}',
-                style: const TextStyle(
+              const Text(
+                '•',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+              ),
+              const SizedBox(width: 16),
+              const Text(
+                'Ready for incoming connection',
+                style: TextStyle(
                   color: AppColors.textSecondary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  fontFamily: 'Courier',
+                  fontSize: 12,
                 ),
               ),
             ],
