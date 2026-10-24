@@ -39,14 +39,19 @@ class DiscoveryService {
       );
       _socket?.broadcastEnabled = true;
 
-      _socket?.listen((RawSocketEvent event) {
-        if (event == RawSocketEvent.read) {
-          final datagram = _socket?.receive();
-          if (datagram != null) {
-            _handleIncomingBeacon(datagram, myKey);
+      _socket?.listen(
+        (RawSocketEvent event) {
+          if (event == RawSocketEvent.read) {
+            final datagram = _socket?.receive();
+            if (datagram != null) {
+              _handleIncomingBeacon(datagram, myKey);
+            }
           }
-        }
-      });
+        },
+        onError: (error) {
+          debugPrint('Discovery UDP socket error: $error');
+        },
+      );
 
       // Beacon timer: send broadcast every 2 seconds
       _beaconTimer = Timer.periodic(const Duration(seconds: 2), (_) {
@@ -106,7 +111,9 @@ class DiscoveryService {
       final bytes = utf8.encode(payload);
 
       // Send to global broadcast address
-      _socket?.send(bytes, InternetAddress('255.255.255.255'), StorageService.udpDiscoveryPort);
+      try {
+        _socket?.send(bytes, InternetAddress('255.255.255.255'), StorageService.udpDiscoveryPort);
+      } catch (_) {}
 
       // Also send to subnet broadcast if detectable
       final parts = localIp.split('.');
