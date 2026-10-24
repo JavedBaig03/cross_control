@@ -65,6 +65,7 @@ static flutter::MethodChannel<flutter::EncodableValue>* g_channel = nullptr;
 static double g_accDx = 0.0;
 static double g_accDy = 0.0;
 static bool g_isCursorHidden = false;
+static bool g_isPointerConfined = false;
 
 static void SetCursorVisibility(bool visible) {
   if (!visible && !g_isCursorHidden) {
@@ -272,11 +273,14 @@ bool FlutterWindow::OnCreate() {
             }
           }
           result->Success(flutter::EncodableValue(true));
+        } else if (call.method_name() == "resetRemoteCursor") {
+          result->Success(flutter::EncodableValue(true));
         } else if (call.method_name() == "confinePointer") {
           bool enable = false;
           if (args) {
             enable = GetBoolValue(*args, "enable", false);
           }
+          g_isPointerConfined = enable;
           HWND hwnd = flutter_controller_->view()->GetNativeWindow();
           if (hwnd) {
             if (enable) {
@@ -386,6 +390,7 @@ void FlutterWindow::OnDestroy() {
     g_keyboardHook = NULL;
   }
   g_isInputInterceptionActive = false;
+  g_isPointerConfined = false;
   ClipCursor(NULL);
   SetCursorVisibility(true);
   g_channel = nullptr;
@@ -423,6 +428,24 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       if (LOWORD(wparam) == WA_INACTIVE) {
         ClipCursor(NULL);
         SetCursorVisibility(true);
+      } else if (g_isPointerConfined) {
+        HWND childHwnd = flutter_controller_ && flutter_controller_->view() ? flutter_controller_->view()->GetNativeWindow() : hwnd;
+        RECT rect;
+        GetClientRect(childHwnd, &rect);
+        InflateRect(&rect, -10, -10);
+        MapWindowPoints(childHwnd, NULL, (LPPOINT)&rect, 2);
+        ClipCursor(&rect);
+        SetCursorVisibility(false);
+      }
+      break;
+    case WM_SIZE:
+      if (g_isPointerConfined) {
+        HWND childHwnd = flutter_controller_ && flutter_controller_->view() ? flutter_controller_->view()->GetNativeWindow() : hwnd;
+        RECT rect;
+        GetClientRect(childHwnd, &rect);
+        InflateRect(&rect, -10, -10);
+        MapWindowPoints(childHwnd, NULL, (LPPOINT)&rect, 2);
+        ClipCursor(&rect);
       }
       break;
     case WM_SYSKEYDOWN:

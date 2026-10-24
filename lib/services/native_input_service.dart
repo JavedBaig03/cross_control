@@ -50,6 +50,13 @@ class NativeInputService {
     }
   }
 
+  /// Reset remote cursor tracking on receiver
+  Future<void> resetRemoteCursor() async {
+    try {
+      await _channel.invokeMethod('resetRemoteCursor');
+    } catch (_) {}
+  }
+
   /// Enable or disable low-level system key interception (e.g. Windows Start Menu suppression)
   Future<void> setLocalInputInterception(bool enable) async {
     try {

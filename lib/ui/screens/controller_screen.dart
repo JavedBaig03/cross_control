@@ -198,9 +198,9 @@ class _ControllerScreenState extends State<ControllerScreen> {
       }
     }
 
-    // Critical anomaly guard: Real physical mouse/trackpad motion never generates > 80px in a single frame.
-    // Any delta > 80px is a synthetic warp, OS recenter, or window boundary jump.
-    if (event.delta.distance > 80) {
+    // Critical anomaly guard: Real physical mouse/trackpad motion never generates > 250px in a single frame.
+    // Any delta > 250px is a synthetic warp, OS recenter, or window boundary jump.
+    if (event.delta.distance > 250) {
       _isWarpPending = false;
       return;
     }

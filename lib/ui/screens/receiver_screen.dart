@@ -66,6 +66,7 @@ class ReceiverScreenState extends State<ReceiverScreen> {
     _uiThrottleTimer?.cancel();
     NativeInputService().simulateMouseButton(button: 0, isDown: false);
     NativeInputService().simulateMouseButton(button: 1, isDown: false);
+    NativeInputService().resetRemoteCursor();
     super.dispose();
   }
 

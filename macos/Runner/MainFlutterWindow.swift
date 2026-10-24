@@ -96,6 +96,10 @@ class MainFlutterWindow: NSWindow {
         }
         result(true)
 
+      case "resetRemoteCursor":
+        self.remoteCursorPosition = nil
+        result(true)
+
       case "confinePointer":
         let enable = args?["enable"] as? Bool ?? false
         if enable {
@@ -163,7 +167,6 @@ class MainFlutterWindow: NSWindow {
   }
 
   private var remoteCursorPosition: CGPoint? = nil
-  private var lastMouseMoveTime: TimeInterval = 0
 
   private func getInitialCursorPosition() -> CGPoint {
     let primaryHeight = NSScreen.screens.first?.frame.height ?? 1080
@@ -172,7 +175,6 @@ class MainFlutterWindow: NSWindow {
   }
 
   private func handleMouseMove(args: [String: Any]) {
-    let now = ProcessInfo.processInfo.systemUptime
     let dx = args["dx"] as? Double ?? 0.0
     let dy = args["dy"] as? Double ?? 0.0
     let hasExplicitX = (args["x"] != nil)
@@ -196,7 +198,7 @@ class MainFlutterWindow: NSWindow {
       targetPt = CGPoint(x: CGFloat(x), y: CGFloat(y))
       remoteCursorPosition = targetPt
     } else {
-      if remoteCursorPosition == nil || (now - lastMouseMoveTime > 0.5) {
+      if remoteCursorPosition == nil {
         remoteCursorPosition = getInitialCursorPosition()
       }
       let current = remoteCursorPosition!
@@ -205,8 +207,11 @@ class MainFlutterWindow: NSWindow {
       targetPt = CGPoint(x: newX, y: newY)
       remoteCursorPosition = targetPt
     }
-    lastMouseMoveTime = now
 
+    // 1. Physically warp hardware cursor to target location
+    CGWarpMouseCursorPosition(targetPt)
+
+    // 2. Synthesize and post native mouse move event to HID event tap
     let eventType: CGEventType
     if isLeftMouseDown {
       eventType = .leftMouseDragged
@@ -222,6 +227,8 @@ class MainFlutterWindow: NSWindow {
       mouseCursorPosition: targetPt,
       mouseButton: isRightMouseDown ? .right : .left
     )
+    mouseEvent?.setIntegerValueField(.mouseEventDeltaX, value: Int64(dx))
+    mouseEvent?.setIntegerValueField(.mouseEventDeltaY, value: Int64(dy))
     mouseEvent?.post(tap: .cghidEventTap)
   }
 
@@ -246,6 +253,8 @@ class MainFlutterWindow: NSWindow {
       cgButton = .center
     }
 
+    CGWarpMouseCursorPosition(current)
+
     let mouseEvent = CGEvent(
       mouseEventSource: nil,
       mouseType: eventType,
@@ -254,6 +263,7 @@ class MainFlutterWindow: NSWindow {
     )
     mouseEvent?.post(tap: .cghidEventTap)
   }
+
 
   private func handleMouseScroll(args: [String: Any]) {
     let dx = args["dx"] as? Double ?? 0.0
