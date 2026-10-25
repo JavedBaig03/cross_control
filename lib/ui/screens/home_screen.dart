@@ -37,6 +37,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _hasAccessibility = true;
 
   ConnectionMode _connectionMode = ConnectionMode.idle;
+  SessionMode _selectedSessionMode = SessionMode.controlOnly;
+  SessionMode _activeSessionMode = SessionMode.controlOnly;
   PeerInfo? _activeControllerPeer;
   ConnectionRequest? _activeReceiverRequest;
   double _remoteScreenWidth = 1920.0;
@@ -272,6 +274,7 @@ class _HomeScreenState extends State<HomeScreen> {
         myKey: _myKey,
         myName: _myName,
         myOs: _myOs,
+        mode: _selectedSessionMode,
         eventHandler: (event) {},
         disconnectHandler: (reason) {
           if (mounted) {
@@ -280,7 +283,7 @@ class _HomeScreenState extends State<HomeScreen> {
               _activeControllerPeer = null;
             });
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Control session ended: $reason')),
+              SnackBar(content: Text('Session ended: $reason')),
             );
           }
         },
@@ -304,6 +307,7 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           _connectionMode = ConnectionMode.controller;
           _activeControllerPeer = connectedPeer;
+          _activeSessionMode = response.mode ?? _selectedSessionMode;
           _remoteScreenWidth = response.screenWidth ?? 1920.0;
           _remoteScreenHeight = response.screenHeight ?? 1080.0;
         });
@@ -383,6 +387,7 @@ class _HomeScreenState extends State<HomeScreen> {
         peer: _activeControllerPeer!,
         targetScreenWidth: _remoteScreenWidth,
         targetScreenHeight: _remoteScreenHeight,
+        mode: _activeSessionMode,
         onDisconnect: () {
           setState(() {
             _connectionMode = ConnectionMode.idle;
@@ -438,6 +443,10 @@ class _HomeScreenState extends State<HomeScreen> {
                           );
                         },
                       ),
+                      const SizedBox(height: 16),
+
+                      // Connection Mode Card
+                      _buildConnectionModeCard(),
                       const SizedBox(height: 16),
 
                       // Connect to Remote Device
@@ -512,6 +521,131 @@ class _HomeScreenState extends State<HomeScreen> {
           },
         ),
       ],
+    );
+  }
+
+  Widget _buildConnectionModeCard() {
+    return GlassCard(
+      borderRadius: 4,
+      borderColor: AppColors.borderStrong,
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Connection Mode',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          const Text(
+            'Select how this session interacts with the remote device',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Dropdown Container with sharp corners matching app design
+          Container(
+            height: 44,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: AppColors.borderStrong),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<SessionMode>(
+                value: _selectedSessionMode,
+                isExpanded: true,
+                dropdownColor: AppColors.surface,
+                borderRadius: BorderRadius.circular(4),
+                icon: const Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  color: AppColors.textSecondary,
+                  size: 20,
+                ),
+                items: SessionMode.values.map((mode) {
+                  IconData icon;
+                  switch (mode) {
+                    case SessionMode.controlOnly:
+                      icon = Icons.mouse_outlined;
+                      break;
+                    case SessionMode.viewOnly:
+                      icon = Icons.visibility_outlined;
+                      break;
+                    case SessionMode.viewAndControl:
+                      icon = Icons.devices_outlined;
+                      break;
+                  }
+                  return DropdownMenuItem<SessionMode>(
+                    value: mode,
+                    child: Row(
+                      children: [
+                        Icon(icon, size: 18, color: AppColors.primary),
+                        const SizedBox(width: 10),
+                        Text(
+                          mode.label,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                onChanged: (newMode) {
+                  if (newMode != null) {
+                    setState(() {
+                      _selectedSessionMode = newMode;
+                    });
+                  }
+                },
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Informational description box of active mode
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceElevated,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.info_outline_rounded,
+                  size: 16,
+                  color: AppColors.textMuted,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _selectedSessionMode.description,
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../models/connection_state.dart';
 import '../../models/control_events.dart';
 import '../../models/peer_info.dart';
 import '../../services/key_mapping_service.dart';
@@ -16,6 +17,7 @@ class ControllerScreen extends StatefulWidget {
   final PeerInfo peer;
   final double targetScreenWidth;
   final double targetScreenHeight;
+  final SessionMode mode;
   final VoidCallback onDisconnect;
 
   const ControllerScreen({
@@ -23,6 +25,7 @@ class ControllerScreen extends StatefulWidget {
     required this.peer,
     this.targetScreenWidth = 1920.0,
     this.targetScreenHeight = 1080.0,
+    this.mode = SessionMode.controlOnly,
     required this.onDisconnect,
   });
 
@@ -44,54 +47,58 @@ class _ControllerScreenState extends State<ControllerScreen> {
   void initState() {
     super.initState();
 
-    // Enter full screen, confine pointer, and activate native input interception
-    NativeInputService().setFullScreen(true);
-    NativeInputService().confinePointer(true);
-    NativeInputService().setLocalInputInterception(true);
+    if (widget.mode.allowsControl) {
+      // Enter full screen, confine pointer, and activate native input interception
+      NativeInputService().setFullScreen(true);
+      NativeInputService().confinePointer(true);
+      NativeInputService().setLocalInputInterception(true);
 
-    NativeInputService().onInterceptedKey = ({
-      required int vk,
-      required bool isDown,
-      required bool isWinKey,
-      required bool alt,
-    }) {
-      if (!_isControlActive) return;
+      NativeInputService().onInterceptedKey = ({
+        required int vk,
+        required bool isDown,
+        required bool isWinKey,
+        required bool alt,
+      }) {
+        if (!_isControlActive) return;
 
-      if (isWinKey) {
-        // Map Windows key directly to macOS Command key (Carbon code 55)
-        NetworkService().sendEvent(KeyEventData(
-          keyCode: 0x5B,
-          windowsVk: 0x5B,
-          macosVk: 55, // kVK_Command
-          label: 'Meta',
-          isDown: isDown,
-          meta: isDown,
-        ));
-      } else if (alt && vk == 0x20) {
-        // Alt + Space (Option + Space on Mac)
-        NetworkService().sendEvent(KeyEventData(
-          keyCode: 0x20,
-          windowsVk: 0x20,
-          macosVk: 49, // kVK_Space
-          label: 'Space',
-          isDown: isDown,
-          alt: true,
-        ));
-      }
-    };
+        if (isWinKey) {
+          // Map Windows key directly to macOS Command key (Carbon code 55)
+          NetworkService().sendEvent(KeyEventData(
+            keyCode: 0x5B,
+            windowsVk: 0x5B,
+            macosVk: 55, // kVK_Command
+            label: 'Meta',
+            isDown: isDown,
+            meta: isDown,
+          ));
+        } else if (alt && vk == 0x20) {
+          // Alt + Space (Option + Space on Mac)
+          NetworkService().sendEvent(KeyEventData(
+            keyCode: 0x20,
+            windowsVk: 0x20,
+            macosVk: 49, // kVK_Space
+            label: 'Space',
+            isDown: isDown,
+            alt: true,
+          ));
+        }
+      };
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _focusNode.requestFocus();
-      _recenterPointer();
-    });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _focusNode.requestFocus();
+        _recenterPointer();
+      });
+    }
   }
 
   @override
   void dispose() {
-    NativeInputService().onInterceptedKey = null;
-    NativeInputService().confinePointer(false);
-    NativeInputService().setFullScreen(false);
-    NativeInputService().setLocalInputInterception(false);
+    if (widget.mode.allowsControl) {
+      NativeInputService().onInterceptedKey = null;
+      NativeInputService().confinePointer(false);
+      NativeInputService().setFullScreen(false);
+      NativeInputService().setLocalInputInterception(false);
+    }
     _focusNode.dispose();
     super.dispose();
   }
@@ -123,6 +130,8 @@ class _ControllerScreenState extends State<ControllerScreen> {
   }
 
   void _togglePauseControl() {
+    if (!widget.mode.allowsControl) return;
+
     setState(() {
       _isControlActive = !_isControlActive;
     });
@@ -145,6 +154,10 @@ class _ControllerScreenState extends State<ControllerScreen> {
   }
 
   KeyEventResult _onFocusKeyEvent(FocusNode node, KeyEvent event) {
+    if (!widget.mode.allowsControl) {
+      return KeyEventResult.ignored;
+    }
+
     // Intercept pause/resume shortcut first
     if (_isPauseResumeShortcut(event)) {
       _togglePauseControl();
@@ -180,7 +193,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
 
   /// Unified pointer movement handler for pure relative movement and edge recentering
   void _handlePointerMovement(PointerEvent event) {
-    if (!_isControlActive) return;
+    if (!_isControlActive || !widget.mode.allowsControl) return;
 
     // Discard synthetic repositioning event generated by warp
     if (_isWarpPending) {
@@ -235,7 +248,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
   }
 
   void _handlePointerDown(PointerDownEvent event) {
-    if (!_isControlActive) return;
+    if (!_isControlActive || !widget.mode.allowsControl) return;
 
     int button = 0; // left
     if (event.buttons & kSecondaryMouseButton != 0) {
@@ -252,7 +265,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
   }
 
   void _handlePointerUp(PointerUpEvent event) {
-    if (!_isControlActive) return;
+    if (!_isControlActive || !widget.mode.allowsControl) return;
 
     if (_downButtons.isEmpty) {
       NetworkService().sendEvent(MouseButtonEvent(
@@ -271,7 +284,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
   }
 
   void _handlePointerSignal(PointerSignalEvent event) {
-    if (!_isControlActive) return;
+    if (!_isControlActive || !widget.mode.allowsControl) return;
 
     if (event is PointerScrollEvent) {
       NetworkService().sendEvent(MouseScrollEvent(
@@ -283,6 +296,10 @@ class _ControllerScreenState extends State<ControllerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.mode == SessionMode.viewOnly) {
+      return _buildViewOnlyInterface();
+    }
+
     final shortcutText = StorageService().shortcutLabel;
 
     return Scaffold(
@@ -355,14 +372,16 @@ class _ControllerScreenState extends State<ControllerScreen> {
                           Container(
                             width: 6,
                             height: 6,
-                            decoration: const BoxDecoration(
-                              color: AppColors.emerald,
+                            decoration: BoxDecoration(
+                              color: widget.mode == SessionMode.viewAndControl ? AppColors.cyan : AppColors.emerald,
                               shape: BoxShape.circle,
                             ),
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            'Controlling ${widget.peer.name}  •  Press $shortcutText to pause',
+                            widget.mode == SessionMode.viewAndControl
+                                ? 'Viewing & Controlling ${widget.peer.name}  •  Press $shortcutText to pause'
+                                : 'Controlling ${widget.peer.name}  •  Press $shortcutText to pause',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 12,
@@ -467,6 +486,15 @@ class _ControllerScreenState extends State<ControllerScreen> {
           ),
 
           const Spacer(),
+
+          // Mode pill
+          StatusPill(
+            label: widget.mode.label.toUpperCase(),
+            color: widget.mode == SessionMode.viewAndControl ? AppColors.emerald : AppColors.primary,
+            icon: widget.mode == SessionMode.viewAndControl ? Icons.devices_outlined : Icons.mouse_outlined,
+            isPulsing: false,
+          ),
+          const SizedBox(width: 8),
 
           // Status & Stats Pills
           ValueListenableBuilder<int>(
@@ -686,6 +714,229 @@ class _ControllerScreenState extends State<ControllerScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Clean desktop interface displayed when session is connected in View Only mode
+  Widget _buildViewOnlyInterface() {
+    final isMac = widget.peer.os.contains('mac');
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: Column(
+        children: [
+          // Top Bar
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            decoration: const BoxDecoration(
+              color: AppColors.surface,
+              border: Border(bottom: BorderSide(color: AppColors.borderStrong)),
+            ),
+            child: Row(
+              children: [
+                DeviceAvatar(
+                  size: 32,
+                  isMac: isMac,
+                  showPlatformBadge: true,
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          widget.peer.name,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceElevated,
+                            borderRadius: BorderRadius.circular(3),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: Text(
+                            widget.peer.key,
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              fontFamily: 'Courier',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Direct Connection • ${widget.peer.ip}',
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+                const Spacer(),
+
+                ValueListenableBuilder<int>(
+                  valueListenable: NetworkService().latencyMsNotifier,
+                  builder: (context, latency, _) {
+                    return StatusPill(
+                      label: '$latency ms',
+                      color: latency < 15 ? AppColors.emerald : AppColors.amber,
+                      icon: Icons.speed_rounded,
+                      isPulsing: false,
+                    );
+                  },
+                ),
+                const SizedBox(width: 8),
+
+                const StatusPill(
+                  label: 'VIEW ONLY',
+                  color: AppColors.cyan,
+                  icon: Icons.visibility_outlined,
+                  isPulsing: false,
+                ),
+                const SizedBox(width: 14),
+
+                OutlinedButton.icon(
+                  onPressed: () {
+                    NetworkService().disconnect();
+                    widget.onDisconnect();
+                  },
+                  icon: const Icon(Icons.close_rounded, size: 14, color: AppColors.coral),
+                  label: const Text(
+                    'Disconnect',
+                    style: TextStyle(color: AppColors.coral, fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppColors.borderStrong),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Central card
+          Expanded(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(32),
+                child: GlassCard(
+                  borderRadius: 4,
+                  borderColor: AppColors.borderStrong,
+                  padding: const EdgeInsets.all(28),
+                  child: Container(
+                    constraints: const BoxConstraints(maxWidth: 520),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceElevated,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: const Icon(
+                            Icons.monitor_rounded,
+                            size: 44,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        Text(
+                          'Connected to ${widget.peer.name}',
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Connection Mode: View Only',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceElevated,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: const Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(Icons.check_circle_outline, color: AppColors.emerald, size: 16),
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Remote keyboard and mouse input are strictly disabled on both devices.',
+                                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              SizedBox(height: 10),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(Icons.info_outline_rounded, color: AppColors.amber, size: 16),
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Screen streaming requires native platform capture implementation (ScreenCaptureKit / Desktop Duplication pipeline).',
+                                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 22),
+                        OutlinedButton(
+                          onPressed: () {
+                            NetworkService().disconnect();
+                            widget.onDisconnect();
+                          },
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: AppColors.borderStrong),
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                          ),
+                          child: const Text(
+                            'Disconnect Session',
+                            style: TextStyle(color: AppColors.coral, fontSize: 13, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

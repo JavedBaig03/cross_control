@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../models/connection_state.dart';
 import '../../models/control_events.dart';
 import '../theme/app_colors.dart';
 import 'device_avatar.dart';
@@ -111,15 +112,24 @@ class ConnectionRequestDialog extends StatelessWidget {
                       isMonospace: true,
                     ),
                   ],
+                  const Divider(color: AppColors.border, height: 16),
+                  _buildInfoRow(
+                    label: 'Mode',
+                    value: request.mode.label,
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: 14),
 
             // Concise security notice
-            const Text(
-              'Approving will allow this device to control your mouse pointer and type keystrokes on this laptop.',
-              style: TextStyle(
+            Text(
+              request.mode == SessionMode.viewOnly
+                  ? 'Approving will allow this device to view your screen in View Only mode. Remote keyboard and mouse control are disabled.'
+                  : (request.mode == SessionMode.viewAndControl
+                      ? 'Approving will allow this device to view your screen and control your mouse pointer and keyboard.'
+                      : 'Approving will allow this device to control your mouse pointer and type keystrokes on this laptop.'),
+              style: const TextStyle(
                 color: AppColors.textMuted,
                 fontSize: 12,
                 height: 1.4,

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import '../models/connection_state.dart';
 import '../models/control_events.dart';
 import 'native_input_service.dart';
 import 'storage_service.dart';
@@ -26,6 +27,8 @@ class NetworkService {
   Socket? _activeSocket;
   StreamSubscription? _socketSubscription;
   bool _isClientMode = false;
+  SessionMode _activeSessionMode = SessionMode.controlOnly;
+  SessionMode get activeSessionMode => _activeSessionMode;
 
   // Real-time state notifiers
   final ValueNotifier<int> latencyMsNotifier = ValueNotifier<int>(0);
@@ -137,10 +140,11 @@ class NetworkService {
 
           if (type == 'connect_request') {
             final request = ConnectionRequest.fromMap(data);
+            _activeSessionMode = request.mode;
             statusNotifier.value = NetworkConnectionStatus.awaitingApproval;
 
-            // Check accessibility permissions on macOS prior to approval
-            if (Platform.isMacOS) {
+            // Check accessibility permissions on macOS prior to approval if mode allows remote control
+            if (Platform.isMacOS && request.mode.allowsControl) {
               final hasPerm = await NativeInputService().checkAccessibilityPermission();
               if (!hasPerm) {
                 final response = ConnectionResponse(
@@ -167,6 +171,7 @@ class NetworkService {
                 accepted: true,
                 screenWidth: screenSize.width,
                 screenHeight: screenSize.height,
+                mode: request.mode,
               );
 
               client.writeln(jsonEncode(response.toMap()));
@@ -192,6 +197,16 @@ class NetworkService {
       try {
         final event = ControlEvent.deserialize(line);
         if (event == null) return;
+
+        // Enforce mode in underlying networking: View Only sessions discard all remote control input events
+        if (!_activeSessionMode.allowsControl) {
+          if (event is MouseMoveEvent ||
+              event is MouseButtonEvent ||
+              event is MouseScrollEvent ||
+              event is KeyEventData) {
+            return;
+          }
+        }
 
         _receivedEventsCount++;
         final now = DateTime.now().millisecondsSinceEpoch;
@@ -240,12 +255,14 @@ class NetworkService {
     required String myKey,
     required String myName,
     required String myOs,
+    SessionMode mode = SessionMode.controlOnly,
     required void Function(ControlEvent event) eventHandler,
     required void Function(String reason) disconnectHandler,
   }) async {
     _clientEventHandler = eventHandler;
     _clientDisconnectHandler = disconnectHandler;
     _isClientMode = true;
+    _activeSessionMode = mode;
     statusNotifier.value = NetworkConnectionStatus.connecting;
 
     final completer = Completer<ConnectionResponse>();
@@ -283,6 +300,7 @@ class NetworkService {
               final response = ConnectionResponse.fromMap(data);
 
               if (response.accepted) {
+                _activeSessionMode = response.mode ?? mode;
                 isHandshakeComplete = true;
                 statusNotifier.value = NetworkConnectionStatus.connected;
                 _startPingTimer();
@@ -386,6 +404,7 @@ class NetworkService {
         deviceName: myName,
         platform: myOs,
         ip: host,
+        mode: mode,
       );
 
       socket.writeln(jsonEncode(request.toMap()));
@@ -460,6 +479,7 @@ class NetworkService {
         _serverDisconnectHandler?.call(reason);
       }
       _isClientMode = false;
+      _activeSessionMode = SessionMode.controlOnly;
       _sentEventsCount = 0;
       _receivedEventsCount = 0;
       eventsSentNotifier.value = 0;

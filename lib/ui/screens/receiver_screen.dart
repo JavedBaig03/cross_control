@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import '../../models/connection_state.dart';
 import '../../models/control_events.dart';
 import '../../services/native_input_service.dart';
 import '../../services/network_service.dart';
@@ -92,6 +93,18 @@ class ReceiverScreenState extends State<ReceiverScreen> {
 
     if (_isRemotePaused) return;
 
+    // If the agreed session mode is View Only, strictly ignore any remote keyboard/mouse inputs
+    if (!widget.request.mode.allowsControl) {
+      if (event is MouseMoveEvent ||
+          event is MouseButtonEvent ||
+          event is MouseScrollEvent ||
+          event is KeyEventData) {
+        _lastEventDescription = 'Input ignored: Session in View Only mode';
+        _scheduleUiUpdate();
+        return;
+      }
+    }
+
     if (event is MouseMoveEvent) {
       // 1. Simulate mouse movement IMMEDIATELY with zero UI thread overhead
       NativeInputService().simulateMouseMove(
@@ -161,52 +174,80 @@ class ReceiverScreenState extends State<ReceiverScreen> {
                   showPlatformBadge: true,
                 ),
                 const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          'Controlled by ${widget.request.deviceName}',
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: AppColors.surfaceElevated,
-                            borderRadius: BorderRadius.circular(3),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: Text(
-                            widget.request.fromKey,
-                            style: const TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              fontFamily: 'Courier',
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              widget.request.mode == SessionMode.viewOnly
+                                  ? 'Viewed by ${widget.request.deviceName}'
+                                  : 'Controlled by ${widget.request.deviceName}',
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    const Text(
-                      'This screen remains local • Keyboard and pointer inputs are shared',
-                      style: TextStyle(color: AppColors.textMuted, fontSize: 11),
-                    ),
-                  ],
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: AppColors.surfaceElevated,
+                              borderRadius: BorderRadius.circular(3),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: Text(
+                              widget.request.fromKey,
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                fontFamily: 'Courier',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        widget.request.mode == SessionMode.viewOnly
+                            ? 'View Only mode • Remote keyboard and pointer control are disabled'
+                            : (widget.request.mode == SessionMode.viewAndControl
+                                ? 'View & Control mode • Remote screen viewing and input control'
+                                : 'Control Only mode • Keyboard and pointer inputs are shared'),
+                        style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 12),
+
+                // Mode pill
+                StatusPill(
+                  label: widget.request.mode.label.toUpperCase(),
+                  color: widget.request.mode == SessionMode.viewOnly
+                      ? AppColors.cyan
+                      : (widget.request.mode == SessionMode.viewAndControl
+                          ? AppColors.emerald
+                          : AppColors.primary),
+                  isPulsing: false,
+                ),
+                const SizedBox(width: 8),
 
                 // Status pill
                 StatusPill(
-                  label: _isRemotePaused ? 'PAUSED' : 'RECEIVING INPUT',
-                  color: _isRemotePaused ? AppColors.amber : AppColors.emerald,
+                  label: _isRemotePaused
+                      ? 'PAUSED'
+                      : (widget.request.mode == SessionMode.viewOnly ? 'VIEW ONLY ACTIVE' : 'RECEIVING INPUT'),
+                  color: _isRemotePaused
+                      ? AppColors.amber
+                      : (widget.request.mode == SessionMode.viewOnly ? AppColors.cyan : AppColors.emerald),
                   isPulsing: !_isRemotePaused,
                 ),
                 const SizedBox(width: 12),
@@ -262,25 +303,28 @@ class ReceiverScreenState extends State<ReceiverScreen> {
                                   size: 20,
                                 ),
                                 const SizedBox(width: 10),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Active Control Session',
-                                      style: TextStyle(
-                                        color: AppColors.textPrimary,
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w600,
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Active Control Session',
+                                        style: TextStyle(
+                                          color: AppColors.textPrimary,
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                       ),
-                                    ),
-                                    Text(
-                                      '${widget.request.deviceName} is forwarding input over local network',
-                                      style: const TextStyle(
-                                        color: AppColors.textSecondary,
-                                        fontSize: 12,
+                                      Text(
+                                        '${widget.request.deviceName} is forwarding input over local network',
+                                        style: const TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 12,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ],
                             ),
@@ -390,14 +434,18 @@ class ReceiverScreenState extends State<ReceiverScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  color: AppColors.textMuted,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
+              const SizedBox(width: 4),
               Icon(icon, size: 14, color: AppColors.textMuted),
             ],
           ),

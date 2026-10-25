@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:cross_control/models/connection_state.dart';
 import 'package:cross_control/models/control_events.dart';
 import 'package:cross_control/services/storage_service.dart';
 import 'package:cross_control/services/key_mapping_service.dart';
@@ -152,6 +153,62 @@ void main() {
       expect(resRestored.accepted, true);
       expect(resRestored.screenWidth, 2560);
       expect(resRestored.screenHeight, 1440);
+      expect(reqRestored.mode, SessionMode.controlOnly); // default
+    });
+
+    test('SessionMode labels, descriptions, and wire conversions', () {
+      expect(SessionMode.controlOnly.label, 'Control Only');
+      expect(SessionMode.viewOnly.label, 'View Only');
+      expect(SessionMode.viewAndControl.label, 'View & Control');
+
+      expect(SessionMode.controlOnly.description,
+          'Control the remote device using the keyboard and mouse, without screen streaming.');
+      expect(SessionMode.viewOnly.description,
+          "View the remote device's screen without controlling its keyboard or mouse.");
+      expect(SessionMode.viewAndControl.description,
+          'View the remote screen and control its keyboard and mouse simultaneously.');
+
+      expect(SessionMode.controlOnly.allowsControl, isTrue);
+      expect(SessionMode.controlOnly.allowsView, isFalse);
+
+      expect(SessionMode.viewOnly.allowsControl, isFalse);
+      expect(SessionMode.viewOnly.allowsView, isTrue);
+
+      expect(SessionMode.viewAndControl.allowsControl, isTrue);
+      expect(SessionMode.viewAndControl.allowsView, isTrue);
+
+      expect(SessionMode.fromWireString('control_only'), SessionMode.controlOnly);
+      expect(SessionMode.fromWireString('view_only'), SessionMode.viewOnly);
+      expect(SessionMode.fromWireString('view_and_control'), SessionMode.viewAndControl);
+      expect(SessionMode.fromWireString('unknown'), SessionMode.controlOnly);
+      expect(SessionMode.fromWireString(null), SessionMode.controlOnly);
+    });
+
+    test('ConnectionRequest and Response preserve explicit SessionMode', () {
+      for (final mode in SessionMode.values) {
+        final req = ConnectionRequest(
+          fromKey: 'CC-1234',
+          deviceName: 'Tester PC',
+          platform: 'windows',
+          ip: '192.168.1.50',
+          mode: mode,
+        );
+        final map = req.toMap();
+        expect(map['mode'], mode.toWireString());
+
+        final restored = ConnectionRequest.fromMap(map);
+        expect(restored.mode, mode);
+
+        final res = ConnectionResponse(
+          accepted: true,
+          mode: mode,
+        );
+        final resMap = res.toMap();
+        expect(resMap['mode'], mode.toWireString());
+
+        final resRestored = ConnectionResponse.fromMap(resMap);
+        expect(resRestored.mode, mode);
+      }
     });
   });
 

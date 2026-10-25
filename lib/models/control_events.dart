@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'connection_state.dart';
 
 /// Types of control events transferred across the network.
 enum EventType {
@@ -278,12 +279,14 @@ class ConnectionRequest {
   final String deviceName;
   final String platform;
   final String ip;
+  final SessionMode mode;
 
   ConnectionRequest({
     required this.fromKey,
     required this.deviceName,
     required this.platform,
     required this.ip,
+    this.mode = SessionMode.controlOnly,
   });
 
   Map<String, dynamic> toMap() => {
@@ -292,6 +295,7 @@ class ConnectionRequest {
         'deviceName': deviceName,
         'platform': platform,
         'ip': ip,
+        'mode': mode.toWireString(),
       };
 
   factory ConnectionRequest.fromMap(Map<String, dynamic> map) {
@@ -300,6 +304,7 @@ class ConnectionRequest {
       deviceName: map['deviceName'] as String? ?? 'Remote Device',
       platform: map['platform'] as String? ?? 'unknown',
       ip: map['ip'] as String? ?? '',
+      mode: SessionMode.fromWireString(map['mode'] as String?),
     );
   }
 }
@@ -309,12 +314,14 @@ class ConnectionResponse {
   final String? reason;
   final double? screenWidth;
   final double? screenHeight;
+  final SessionMode? mode;
 
   ConnectionResponse({
     required this.accepted,
     this.reason,
     this.screenWidth,
     this.screenHeight,
+    this.mode,
   });
 
   Map<String, dynamic> toMap() => {
@@ -323,6 +330,7 @@ class ConnectionResponse {
         if (reason != null) 'reason': reason,
         if (screenWidth != null) 'screenWidth': screenWidth,
         if (screenHeight != null) 'screenHeight': screenHeight,
+        if (mode != null) 'mode': mode!.toWireString(),
       };
 
   factory ConnectionResponse.fromMap(Map<String, dynamic> map) {
@@ -331,6 +339,7 @@ class ConnectionResponse {
       reason: map['reason'] as String?,
       screenWidth: (map['screenWidth'] as num?)?.toDouble(),
       screenHeight: (map['screenHeight'] as num?)?.toDouble(),
+      mode: map['mode'] != null ? SessionMode.fromWireString(map['mode'] as String?) : null,
     );
   }
 }
