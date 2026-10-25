@@ -3,6 +3,11 @@
 #include <optional>
 #include <algorithm>
 #include <windows.h>
+#include <gdiplus.h>
+#include <thread>
+#include <atomic>
+#include <vector>
+#include <chrono>
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
 
@@ -67,6 +72,103 @@ static double g_accDy = 0.0;
 static bool g_isCursorHidden = false;
 static bool g_isPointerConfined = false;
 
+// Windows desktop screen capture via GDI and GDI+
+static ULONG_PTR g_gdiplusToken = 0;
+static std::atomic<bool> g_isScreenCaptureRunning(false);
+static std::thread g_screenCaptureThread;
+
+int GetEncoderClsid(const WCHAR* format, CLSID* pClsid) {
+  UINT num = 0;
+  UINT size = 0;
+  Gdiplus::GetImageEncodersSize(&num, &size);
+  if (size == 0) return -1;
+  auto* pImageCodecInfo = (Gdiplus::ImageCodecInfo*)(malloc(size));
+  if (!pImageCodecInfo) return -1;
+  Gdiplus::GetImageEncoders(num, size, pImageCodecInfo);
+  for (UINT j = 0; j < num; ++j) {
+    if (wcscmp(pImageCodecInfo[j].MimeType, format) == 0) {
+      *pClsid = pImageCodecInfo[j].Clsid;
+      free(pImageCodecInfo);
+      return j;
+    }
+  }
+  free(pImageCodecInfo);
+  return -1;
+}
+
+std::vector<uint8_t> CaptureDesktopJpeg(int targetWidth, int targetHeight, ULONG quality) {
+  std::vector<uint8_t> resultBytes;
+
+  int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+  int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+  if (screenWidth <= 0 || screenHeight <= 0) return resultBytes;
+
+  HDC hScreenDC = GetDC(NULL);
+  HDC hMemoryDC = CreateCompatibleDC(hScreenDC);
+  HBITMAP hBitmap = CreateCompatibleBitmap(hScreenDC, screenWidth, screenHeight);
+  HBITMAP hOldBitmap = (HBITMAP)SelectObject(hMemoryDC, hBitmap);
+
+  BitBlt(hMemoryDC, 0, 0, screenWidth, screenHeight, hScreenDC, 0, 0, SRCCOPY | CAPTUREBLT);
+
+  // Render hardware cursor into frame
+  CURSORINFO cursorInfo = { 0 };
+  cursorInfo.cbSize = sizeof(cursorInfo);
+  if (GetCursorInfo(&cursorInfo) && cursorInfo.flags == CURSOR_SHOWING) {
+    ICONINFO iconInfo = { 0 };
+    if (GetIconInfo(cursorInfo.hCursor, &iconInfo)) {
+      int x = cursorInfo.ptScreenPos.x - iconInfo.xHotspot;
+      int y = cursorInfo.ptScreenPos.y - iconInfo.yHotspot;
+      DrawIconEx(hMemoryDC, x, y, cursorInfo.hCursor, 0, 0, 0, NULL, DI_NORMAL);
+      if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
+      if (iconInfo.hbmMask) DeleteObject(iconInfo.hbmMask);
+    }
+  }
+
+  Gdiplus::Bitmap rawBitmap(hBitmap, NULL);
+  Gdiplus::Bitmap* pFinalBitmap = &rawBitmap;
+  std::unique_ptr<Gdiplus::Bitmap> scaledBitmap;
+  if (targetWidth > 0 && targetHeight > 0 && (targetWidth != screenWidth || targetHeight != screenHeight)) {
+    scaledBitmap = std::make_unique<Gdiplus::Bitmap>(targetWidth, targetHeight, rawBitmap.GetPixelFormat());
+    Gdiplus::Graphics g(scaledBitmap.get());
+    g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBilinear);
+    g.DrawImage(&rawBitmap, 0, 0, targetWidth, targetHeight);
+    pFinalBitmap = scaledBitmap.get();
+  }
+
+  CLSID encoderClsid;
+  if (GetEncoderClsid(L"image/jpeg", &encoderClsid) >= 0) {
+    IStream* pStream = NULL;
+    if (CreateStreamOnHGlobal(NULL, TRUE, &pStream) == S_OK) {
+      Gdiplus::EncoderParameters encoderParameters;
+      encoderParameters.Count = 1;
+      encoderParameters.Parameter[0].Guid = Gdiplus::EncoderQuality;
+      encoderParameters.Parameter[0].Type = Gdiplus::EncoderParameterValueTypeLong;
+      encoderParameters.Parameter[0].NumberOfValues = 1;
+      encoderParameters.Parameter[0].Value = &quality;
+
+      if (pFinalBitmap->Save(pStream, &encoderClsid, &encoderParameters) == Gdiplus::Ok) {
+        STATSTG stat;
+        if (pStream->Stat(&stat, STATFLAG_NONAME) == S_OK) {
+          DWORD size = (DWORD)stat.cbSize.LowPart;
+          resultBytes.resize(size);
+          LARGE_INTEGER liZero = { 0 };
+          pStream->Seek(liZero, STREAM_SEEK_SET, NULL);
+          ULONG bytesRead = 0;
+          pStream->Read(resultBytes.data(), size, &bytesRead);
+        }
+      }
+      pStream->Release();
+    }
+  }
+
+  SelectObject(hMemoryDC, hOldBitmap);
+  DeleteObject(hBitmap);
+  DeleteDC(hMemoryDC);
+  ReleaseDC(NULL, hScreenDC);
+
+  return resultBytes;
+}
+
 static void SetCursorVisibility(bool visible) {
   if (!visible && !g_isCursorHidden) {
     ShowCursor(FALSE);
@@ -129,6 +231,11 @@ FlutterWindow::~FlutterWindow() {}
 bool FlutterWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
     return false;
+  }
+
+  if (g_gdiplusToken == 0) {
+    Gdiplus::GdiplusStartupInput gdiplusStartupInput;
+    Gdiplus::GdiplusStartup(&g_gdiplusToken, &gdiplusStartupInput, NULL);
   }
 
   RECT frame = GetClientArea();
@@ -365,6 +472,61 @@ bool FlutterWindow::OnCreate() {
             }
           }
           result->Success(flutter::EncodableValue(true));
+        } else if (call.method_name() == "checkScreenCapturePermission") {
+          result->Success(flutter::EncodableValue(true));
+        } else if (call.method_name() == "requestScreenCapturePermission") {
+          result->Success(flutter::EncodableValue(true));
+        } else if (call.method_name() == "openScreenCaptureSettings") {
+          result->Success(flutter::EncodableValue(true));
+        } else if (call.method_name() == "captureScreenFrame") {
+          int width = args ? GetIntValue(*args, "width", 1280) : 1280;
+          int height = args ? GetIntValue(*args, "height", 720) : 720;
+          double qualityD = args ? GetDoubleValue(*args, "quality", 0.6) : 0.6;
+          ULONG quality = static_cast<ULONG>(qualityD * 100.0);
+          std::vector<uint8_t> jpeg = CaptureDesktopJpeg(width, height, quality);
+          if (!jpeg.empty()) {
+            result->Success(flutter::EncodableValue(jpeg));
+          } else {
+            result->Success();
+          }
+        } else if (call.method_name() == "startScreenCapture") {
+          int fps = args ? GetIntValue(*args, "fps", 20) : 20;
+          int width = args ? GetIntValue(*args, "width", 1280) : 1280;
+          int height = args ? GetIntValue(*args, "height", 720) : 720;
+          double qualityD = args ? GetDoubleValue(*args, "quality", 0.6) : 0.6;
+          ULONG quality = static_cast<ULONG>(qualityD * 100.0);
+
+          if (!g_isScreenCaptureRunning) {
+            g_isScreenCaptureRunning = true;
+            if (g_screenCaptureThread.joinable()) {
+              g_screenCaptureThread.join();
+            }
+            g_screenCaptureThread = std::thread([fps, width, height, quality]() {
+              int intervalMs = (std::max)(10, 1000 / (std::max)(1, fps));
+              while (g_isScreenCaptureRunning) {
+                auto start = std::chrono::steady_clock::now();
+                std::vector<uint8_t> jpeg = CaptureDesktopJpeg(width, height, quality);
+                if (!jpeg.empty() && g_channel) {
+                  flutter::EncodableMap map;
+                  map[flutter::EncodableValue("frame")] = flutter::EncodableValue(jpeg);
+                  g_channel->InvokeMethod("onScreenFrame", std::make_unique<flutter::EncodableValue>(map));
+                }
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - start).count();
+                int sleepMs = intervalMs - static_cast<int>(elapsed);
+                if (sleepMs > 0 && g_isScreenCaptureRunning) {
+                  std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+                }
+              }
+            });
+          }
+          result->Success(flutter::EncodableValue(true));
+        } else if (call.method_name() == "stopScreenCapture") {
+          g_isScreenCaptureRunning = false;
+          if (g_screenCaptureThread.joinable()) {
+            g_screenCaptureThread.join();
+          }
+          result->Success(flutter::EncodableValue(true));
         } else {
           result->NotImplemented();
         }
@@ -400,6 +562,15 @@ void FlutterWindow::OnDestroy() {
   }
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
+  }
+
+  g_isScreenCaptureRunning = false;
+  if (g_screenCaptureThread.joinable()) {
+    g_screenCaptureThread.join();
+  }
+  if (g_gdiplusToken != 0) {
+    Gdiplus::GdiplusShutdown(g_gdiplusToken);
+    g_gdiplusToken = 0;
   }
 
   Win32Window::OnDestroy();

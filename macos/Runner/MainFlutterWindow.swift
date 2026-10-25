@@ -1,11 +1,14 @@
 import Cocoa
 import FlutterMacOS
 import ApplicationServices
+import ScreenCaptureKit
+import CoreImage
 
 class MainFlutterWindow: NSWindow {
   private var isLeftMouseDown = false
   private var isRightMouseDown = false
   private var isCursorHidden = false
+  private var screenCapture: AnyObject? = nil
 
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
@@ -32,6 +35,9 @@ class MainFlutterWindow: NSWindow {
   }
 
   deinit {
+    if #available(macOS 12.3, *) {
+      (self.screenCapture as? MacOSScreenCapture)?.stop()
+    }
     if isCursorHidden {
       NSCursor.unhide()
       isCursorHidden = false
@@ -43,6 +49,10 @@ class MainFlutterWindow: NSWindow {
       name: "com.crosscontrol/input_channel",
       binaryMessenger: controller.engine.binaryMessenger
     )
+
+    if #available(macOS 12.3, *) {
+      self.screenCapture = MacOSScreenCapture(channel: channel)
+    }
 
     channel.setMethodCallHandler { [weak self] (call: FlutterMethodCall, result: @escaping FlutterResult) in
       guard let self = self else { return }
@@ -159,6 +169,57 @@ class MainFlutterWindow: NSWindow {
 
       case "setLocalInputInterception":
         result(true)
+
+      case "checkScreenCapturePermission":
+        if #available(macOS 10.15, *) {
+          result(CGPreflightScreenCaptureAccess())
+        } else {
+          result(true)
+        }
+
+      case "requestScreenCapturePermission":
+        if #available(macOS 10.15, *) {
+          result(CGRequestScreenCaptureAccess())
+        } else {
+          result(true)
+        }
+
+      case "openScreenCaptureSettings":
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+          NSWorkspace.shared.open(url)
+        }
+        result(true)
+
+      case "startScreenCapture":
+        if #available(macOS 12.3, *) {
+          let fps = args?["fps"] as? Int ?? 20
+          let quality = Float(args?["quality"] as? Double ?? 0.6)
+          let width = args?["width"] as? Int ?? 1280
+          let height = args?["height"] as? Int ?? 720
+          (self.screenCapture as? MacOSScreenCapture)?.start(fps: fps, quality: quality, targetWidth: width, targetHeight: height) { success in
+            result(success)
+          }
+        } else {
+          result(false)
+        }
+
+      case "stopScreenCapture":
+        if #available(macOS 12.3, *) {
+          (self.screenCapture as? MacOSScreenCapture)?.stop()
+        }
+        result(true)
+
+      case "captureScreenFrame":
+        if #available(macOS 12.3, *) {
+          let quality = Float(args?["quality"] as? Double ?? 0.6)
+          let width = args?["width"] as? Int ?? 1280
+          let height = args?["height"] as? Int ?? 720
+          (self.screenCapture as? MacOSScreenCapture)?.captureSingleFrame(quality: quality, targetWidth: width, targetHeight: height) { data in
+            result(data)
+          }
+        } else {
+          result(nil)
+        }
 
       default:
         result(FlutterMethodNotImplemented)
@@ -323,4 +384,137 @@ class MainFlutterWindow: NSWindow {
     }
   }
 }
+
+@available(macOS 12.3, *)
+class MacOSScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
+  private var stream: SCStream?
+  private let context = CIContext(options: [CIContextOption.useSoftwareRenderer: false])
+  private let colorSpace = CGColorSpaceCreateDeviceRGB()
+  private weak var channel: FlutterMethodChannel?
+  private var isEncodingOrPending = false
+  private(set) var isRunning = false
+  private var quality: Float = 0.6
+
+  init(channel: FlutterMethodChannel) {
+    self.channel = channel
+    super.init()
+  }
+
+  func start(
+    fps: Int = 20,
+    quality: Float = 0.6,
+    targetWidth: Int = 1280,
+    targetHeight: Int = 720,
+    completion: @escaping (Bool) -> Void
+  ) {
+    self.quality = quality
+    if isRunning {
+      completion(true)
+      return
+    }
+
+    Task {
+      do {
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        guard let display = content.displays.first else {
+          completion(false)
+          return
+        }
+
+        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let config = SCStreamConfiguration()
+        config.width = targetWidth > 0 ? targetWidth : display.width
+        config.height = targetHeight > 0 ? targetHeight : display.height
+        config.minimumFrameInterval = CMTime(value: 1, timescale: Int32(max(1, fps)))
+        config.showsCursor = true
+        config.pixelFormat = kCVPixelFormatType_32BGRA
+
+        let newStream = SCStream(filter: filter, configuration: config, delegate: self)
+        try newStream.addStreamOutput(
+          self,
+          type: .screen,
+          sampleHandlerQueue: DispatchQueue(label: "com.crosscontrol.screencapture", qos: .userInteractive)
+        )
+        try await newStream.startCapture()
+        self.stream = newStream
+        self.isRunning = true
+        completion(true)
+      } catch {
+        print("ScreenCaptureKit start error: \(error)")
+        completion(false)
+      }
+    }
+  }
+
+  func stop() {
+    isRunning = false
+    if let stream = stream {
+      Task {
+        try? await stream.stopCapture()
+      }
+      self.stream = nil
+    }
+  }
+
+  func captureSingleFrame(
+    quality: Float = 0.6,
+    targetWidth: Int = 1280,
+    targetHeight: Int = 720,
+    completion: @escaping (FlutterStandardTypedData?) -> Void
+  ) {
+    if #available(macOS 14.0, *) {
+      Task {
+        do {
+          let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+          guard let display = content.displays.first else {
+            completion(nil)
+            return
+          }
+          let filter = SCContentFilter(display: display, excludingWindows: [])
+          let config = SCStreamConfiguration()
+          config.width = targetWidth > 0 ? targetWidth : display.width
+          config.height = targetHeight > 0 ? targetHeight : display.height
+          config.showsCursor = true
+          let cgImage = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+          let rep = NSBitmapImageRep(cgImage: cgImage)
+          if let jpeg = rep.representation(using: .jpeg, properties: [.compressionFactor: quality]) {
+            completion(FlutterStandardTypedData(bytes: jpeg))
+          } else {
+            completion(nil)
+          }
+        } catch {
+          completion(nil)
+        }
+      }
+    } else {
+      completion(nil)
+    }
+  }
+
+  func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+    guard isRunning, type == .screen else { return }
+    guard !isEncodingOrPending else { return }
+    guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+
+    isEncodingOrPending = true
+    let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+    let options = [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: quality as NSNumber]
+    guard let jpegData = context.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: options) else {
+      isEncodingOrPending = false
+      return
+    }
+
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self, self.isRunning else { return }
+      self.channel?.invokeMethod("onScreenFrame", arguments: ["frame": FlutterStandardTypedData(bytes: jpegData)])
+      self.isEncodingOrPending = false
+    }
+  }
+
+  func stream(_ stream: SCStream, didStopWithError error: Error) {
+    print("ScreenCaptureKit stream stopped with error: \(error)")
+    isRunning = false
+  }
+}
+
 

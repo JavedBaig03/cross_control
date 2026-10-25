@@ -244,7 +244,11 @@ class ReceiverScreenState extends State<ReceiverScreen> {
                 StatusPill(
                   label: _isRemotePaused
                       ? 'PAUSED'
-                      : (widget.request.mode == SessionMode.viewOnly ? 'VIEW ONLY ACTIVE' : 'RECEIVING INPUT'),
+                      : (widget.request.mode == SessionMode.viewOnly
+                          ? 'STREAMING SCREEN'
+                          : (widget.request.mode == SessionMode.viewAndControl
+                              ? 'STREAMING & INPUT'
+                              : 'RECEIVING INPUT')),
                   color: _isRemotePaused
                       ? AppColors.amber
                       : (widget.request.mode == SessionMode.viewOnly ? AppColors.cyan : AppColors.emerald),

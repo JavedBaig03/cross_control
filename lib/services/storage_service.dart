@@ -8,6 +8,7 @@ class StorageService {
 
   static const int udpDiscoveryPort = 42069;
   static const int tcpControlPort = 42070;
+  static const int tcpScreenPort = 42071;
 
   late final String connectionKey = _generateConnectionKey();
   String? deviceName;

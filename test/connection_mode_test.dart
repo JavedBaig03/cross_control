@@ -158,9 +158,10 @@ void main() {
       await tester.pump();
 
       expect(find.text('VIEW ONLY'), findsOneWidget);
-      expect(find.text('Connected to Target Laptop'), findsOneWidget);
-      expect(find.text('Connection Mode: View Only'), findsOneWidget);
-      expect(find.text('Disconnect Session'), findsOneWidget);
+      expect(find.text('Connecting to Target Laptop...'), findsOneWidget);
+      expect(find.text('Disconnect'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 5));
     });
   });
 }

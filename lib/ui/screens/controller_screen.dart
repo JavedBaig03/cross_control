@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +8,7 @@ import '../../models/peer_info.dart';
 import '../../services/key_mapping_service.dart';
 import '../../services/native_input_service.dart';
 import '../../services/network_service.dart';
+import '../../services/screen_stream_service.dart';
 import '../../services/storage_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/device_avatar.dart';
@@ -46,6 +48,13 @@ class _ControllerScreenState extends State<ControllerScreen> {
   @override
   void initState() {
     super.initState();
+
+    if (widget.mode.allowsView) {
+      ScreenStreamService().connectToStream(
+        host: widget.peer.ip,
+        port: StorageService.tcpScreenPort,
+      );
+    }
 
     if (widget.mode.allowsControl) {
       // Enter full screen, confine pointer, and activate native input interception
@@ -93,6 +102,9 @@ class _ControllerScreenState extends State<ControllerScreen> {
 
   @override
   void dispose() {
+    if (widget.mode.allowsView) {
+      ScreenStreamService().disconnectStream();
+    }
     if (widget.mode.allowsControl) {
       NativeInputService().onInterceptedKey = null;
       NativeInputService().confinePointer(false);
@@ -221,11 +233,34 @@ class _ControllerScreenState extends State<ControllerScreen> {
     final dx = event.delta.dx * _sensitivity;
     final dy = event.delta.dy * _sensitivity;
 
-    if (dx != 0.0 || dy != 0.0) {
-      // Stream pure relative deltas without clamping to local screen limits!
+    double? remoteX;
+    double? remoteY;
+    if (widget.mode.allowsView) {
+      final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
+      if (renderBox != null && renderBox.hasSize) {
+        final size = renderBox.size;
+        final double scale = min(
+          size.width / widget.targetScreenWidth,
+          size.height / widget.targetScreenHeight,
+        );
+        if (scale > 0) {
+          final double renderedWidth = widget.targetScreenWidth * scale;
+          final double renderedHeight = widget.targetScreenHeight * scale;
+          final double offsetX = (size.width - renderedWidth) / 2;
+          final double offsetY = (size.height - renderedHeight) / 2;
+          remoteX = ((event.position.dx - offsetX) / scale).clamp(0.0, widget.targetScreenWidth - 1.0);
+          remoteY = ((event.position.dy - offsetY) / scale).clamp(0.0, widget.targetScreenHeight - 1.0);
+        }
+      }
+    }
+
+    if (dx != 0.0 || dy != 0.0 || remoteX != null) {
+      // Stream relative deltas and absolute mapped coordinates
       NetworkService().sendEvent(MouseMoveEvent(
         dx: dx,
         dy: dy,
+        x: remoteX,
+        y: remoteY,
       ));
     }
 
@@ -335,22 +370,58 @@ class _ControllerScreenState extends State<ControllerScreen> {
           color: const Color(0xFF070A10),
           child: Stack(
             children: [
-              // Subtle ambient glow in center
-              Center(
-                child: Container(
-                  width: 320,
-                  height: 320,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        AppColors.cyan.withOpacity(0.04),
-                        Colors.transparent,
-                      ],
+              // Background: Live screen stream when view is allowed, or subtle ambient glow in control-only
+              if (widget.mode.allowsView)
+                Positioned.fill(
+                  child: ValueListenableBuilder<Uint8List?>(
+                    valueListenable: ScreenStreamService().currentFrameNotifier,
+                    builder: (context, frameBytes, _) {
+                      if (frameBytes != null && frameBytes.isNotEmpty) {
+                        return Center(
+                          child: Image.memory(
+                            frameBytes,
+                            gaplessPlayback: true,
+                            fit: BoxFit.contain,
+                            filterQuality: FilterQuality.medium,
+                          ),
+                        );
+                      }
+                      return Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const SizedBox(
+                              width: 32,
+                              height: 32,
+                              child: CircularProgressIndicator(strokeWidth: 2.5, color: AppColors.cyan),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Connecting to screen stream from ${widget.peer.name}...',
+                              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                )
+              else
+                Center(
+                  child: Container(
+                    width: 320,
+                    height: 320,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          AppColors.cyan.withOpacity(0.04),
+                          Colors.transparent,
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
 
               // Small unobtrusive floating shortcut pill at the top (IgnorePointer ensures 100% mouse transparency)
               Positioned(
@@ -380,10 +451,29 @@ class _ControllerScreenState extends State<ControllerScreen> {
                           const SizedBox(width: 8),
                           Text(
                             widget.mode == SessionMode.viewAndControl
-                                ? 'Viewing & Controlling ${widget.peer.name}  •  Press $shortcutText to pause'
-                                : 'Controlling ${widget.peer.name}  •  Press $shortcutText to pause',
+                                ? 'Viewing & Controlling ${widget.peer.name}'
+                                : 'Controlling ${widget.peer.name}',
                             style: const TextStyle(
                               color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (widget.mode.allowsView)
+                            ValueListenableBuilder<int>(
+                              valueListenable: ScreenStreamService().fpsNotifier,
+                              builder: (context, fps, _) {
+                                if (fps <= 0) return const SizedBox.shrink();
+                                return Text(
+                                  '  •  $fps FPS',
+                                  style: const TextStyle(color: AppColors.cyan, fontSize: 12, fontWeight: FontWeight.w500),
+                                );
+                              },
+                            ),
+                          Text(
+                            '  •  Press $shortcutText to pause',
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
                             ),
@@ -798,6 +888,27 @@ class _ControllerScreenState extends State<ControllerScreen> {
                 ),
                 const SizedBox(width: 8),
 
+                ValueListenableBuilder<int>(
+                  valueListenable: ScreenStreamService().fpsNotifier,
+                  builder: (context, fps, _) {
+                    return StatusPill(
+                      label: '$fps FPS',
+                      color: fps > 0 ? AppColors.cyan : AppColors.textMuted,
+                      icon: Icons.videocam_outlined,
+                      isPulsing: false,
+                    );
+                  },
+                ),
+                const SizedBox(width: 8),
+
+                StatusPill(
+                  label: '${widget.targetScreenWidth.toInt()}×${widget.targetScreenHeight.toInt()}',
+                  color: AppColors.textMuted,
+                  icon: Icons.aspect_ratio_rounded,
+                  isPulsing: false,
+                ),
+                const SizedBox(width: 8),
+
                 const StatusPill(
                   label: 'VIEW ONLY',
                   color: AppColors.cyan,
@@ -826,113 +937,108 @@ class _ControllerScreenState extends State<ControllerScreen> {
             ),
           ),
 
-          // Central card
+          // Central live screen view
           Expanded(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(32),
-                child: GlassCard(
-                  borderRadius: 4,
-                  borderColor: AppColors.borderStrong,
-                  padding: const EdgeInsets.all(28),
-                  child: Container(
-                    constraints: const BoxConstraints(maxWidth: 520),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
+            child: Container(
+              color: const Color(0xFF070A10),
+              child: ValueListenableBuilder<Uint8List?>(
+                valueListenable: ScreenStreamService().currentFrameNotifier,
+                builder: (context, frameBytes, _) {
+                  if (frameBytes != null && frameBytes.isNotEmpty) {
+                    return Stack(
                       children: [
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: AppColors.surfaceElevated,
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: const Icon(
-                            Icons.monitor_rounded,
-                            size: 44,
-                            color: AppColors.primary,
+                        Center(
+                          child: Image.memory(
+                            frameBytes,
+                            gaplessPlayback: true,
+                            fit: BoxFit.contain,
+                            filterQuality: FilterQuality.medium,
                           ),
                         ),
-                        const SizedBox(height: 18),
-                        Text(
-                          'Connected to ${widget.peer.name}',
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Connection Mode: View Only',
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 18),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: AppColors.surfaceElevated,
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: const Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Icon(Icons.check_circle_outline, color: AppColors.emerald, size: 16),
-                                  SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      'Remote keyboard and mouse input are strictly disabled on both devices.',
-                                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              SizedBox(height: 10),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Icon(Icons.info_outline_rounded, color: AppColors.amber, size: 16),
-                                  SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      'Screen streaming requires native platform capture implementation (ScreenCaptureKit / Desktop Duplication pipeline).',
-                                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 22),
-                        OutlinedButton(
-                          onPressed: () {
-                            NetworkService().disconnect();
-                            widget.onDisconnect();
-                          },
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppColors.borderStrong),
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                          ),
-                          child: const Text(
-                            'Disconnect Session',
-                            style: TextStyle(color: AppColors.coral, fontSize: 13, fontWeight: FontWeight.w600),
+                        // Subtle non-obtrusive indicator in bottom-right corner
+                        Positioned(
+                          bottom: 16,
+                          right: 16,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F172A).withOpacity(0.85),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.lock_outline_rounded, size: 12, color: AppColors.cyan),
+                                SizedBox(width: 6),
+                                Text(
+                                  'Input Disabled (View Only)',
+                                  style: TextStyle(color: AppColors.textSecondary, fontSize: 11, fontWeight: FontWeight.w500),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],
+                    );
+                  }
+
+                  return Center(
+                    child: GlassCard(
+                      borderRadius: 4,
+                      borderColor: AppColors.borderStrong,
+                      padding: const EdgeInsets.all(28),
+                      child: Container(
+                        constraints: const BoxConstraints(maxWidth: 440),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const SizedBox(
+                              width: 36,
+                              height: 36,
+                              child: CircularProgressIndicator(strokeWidth: 2.5, color: AppColors.cyan),
+                            ),
+                            const SizedBox(height: 20),
+                            Text(
+                              'Connecting to ${widget.peer.name}...',
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Establishing real-time screen stream over local network...',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 20),
+                            OutlinedButton(
+                              onPressed: () {
+                                NetworkService().disconnect();
+                                widget.onDisconnect();
+                              },
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: AppColors.borderStrong),
+                                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                              ),
+                              child: const Text(
+                                'Cancel Connection',
+                                style: TextStyle(color: AppColors.coral, fontSize: 12, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
             ),
           ),

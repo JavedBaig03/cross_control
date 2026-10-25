@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../models/connection_state.dart';
 import '../models/control_events.dart';
 import 'native_input_service.dart';
+import 'screen_stream_service.dart';
 import 'storage_service.dart';
 
 typedef RequestApprovalHandler = Future<bool> Function(ConnectionRequest request);
@@ -158,6 +159,25 @@ class NetworkService {
               }
             }
 
+            // Check screen recording permissions on macOS prior to approval if mode allows screen viewing
+            if (Platform.isMacOS && request.mode.allowsView) {
+              final hasCapturePerm = await NativeInputService().checkScreenCapturePermission();
+              if (!hasCapturePerm) {
+                await NativeInputService().requestScreenCapturePermission();
+                final rechecked = await NativeInputService().checkScreenCapturePermission();
+                if (!rechecked) {
+                  final response = ConnectionResponse(
+                    accepted: false,
+                    reason: 'Screen Recording permission is not granted on this Mac. Please enable Screen Recording in System Settings > Privacy & Security > Screen & System Audio Recording.',
+                  );
+                  client.writeln(jsonEncode(response.toMap()));
+                  await client.flush();
+                  disconnect(reason: 'Screen Recording permission required');
+                  return;
+                }
+              }
+            }
+
             // Ask receiving user for approval
             final bool accepted = onRequestApproval != null
                 ? await onRequestApproval!(request)
@@ -166,6 +186,12 @@ class NetworkService {
             if (accepted) {
               isHandshakeApproved = true;
               statusNotifier.value = NetworkConnectionStatus.connected;
+
+              // Start screen streaming server if agreed mode permits screen viewing
+              if (request.mode.allowsView) {
+                await ScreenStreamService().startStreamingServer(port: StorageService.tcpScreenPort);
+              }
+
               final screenSize = await NativeInputService().getScreenSize();
               final response = ConnectionResponse(
                 accepted: true,
@@ -456,6 +482,9 @@ class NetworkService {
   void disconnect({String reason = 'Disconnected'}) {
     _pingTimer?.cancel();
     _pingTimer = null;
+
+    ScreenStreamService().stopStreamingServer();
+    ScreenStreamService().disconnectStream();
 
     if (_readyAckCompleter != null && !_readyAckCompleter!.isCompleted) {
       _readyAckCompleter?.complete(false);

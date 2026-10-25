@@ -14,6 +14,9 @@ class NativeInputService {
   /// Callback when native platform intercepts a system-reserved key (e.g. Windows key or Alt+Space on Windows)
   void Function({required int vk, required bool isDown, required bool isWinKey, required bool alt})? onInterceptedKey;
 
+  /// Callback when native platform emits a captured screen frame
+  void Function(Uint8List frameBytes)? onScreenFrame;
+
   Future<dynamic> _handleNativeCall(MethodCall call) async {
     if (call.method == 'onInterceptedKey') {
       final args = call.arguments as Map<dynamic, dynamic>?;
@@ -23,6 +26,14 @@ class NativeInputService {
         final isWinKey = args['isWinKey'] as bool? ?? false;
         final alt = args['alt'] as bool? ?? false;
         onInterceptedKey?.call(vk: vk, isDown: isDown, isWinKey: isWinKey, alt: alt);
+      }
+    } else if (call.method == 'onScreenFrame') {
+      final args = call.arguments as Map<dynamic, dynamic>?;
+      if (args != null) {
+        final frame = args['frame'] as Uint8List?;
+        if (frame != null) {
+          onScreenFrame?.call(frame);
+        }
       }
     }
   }
@@ -202,6 +213,91 @@ class NativeInputService {
       });
     } catch (e) {
       // Ignore or debug
+    }
+  }
+
+  /// Check whether the app has Screen Recording permissions (macOS)
+  Future<bool> checkScreenCapturePermission() async {
+    if (!Platform.isMacOS) return true;
+    try {
+      final bool? trusted = await _channel.invokeMethod<bool>('checkScreenCapturePermission');
+      return trusted ?? false;
+    } catch (e) {
+      debugPrint('Error checking screen capture permission: $e');
+      return false;
+    }
+  }
+
+  /// Request Screen Recording permissions via system prompt (macOS)
+  Future<bool> requestScreenCapturePermission() async {
+    if (!Platform.isMacOS) return true;
+    try {
+      final bool? trusted = await _channel.invokeMethod<bool>('requestScreenCapturePermission');
+      return trusted ?? false;
+    } catch (e) {
+      debugPrint('Error requesting screen capture permission: $e');
+      return false;
+    }
+  }
+
+  /// Open System Settings to Screen Recording panel (macOS)
+  Future<void> openScreenCaptureSettings() async {
+    try {
+      await _channel.invokeMethod('openScreenCaptureSettings');
+    } catch (e) {
+      debugPrint('Error opening screen capture settings: $e');
+    }
+  }
+
+  /// Start continuous native screen capture streaming (SCStream on macOS, GDI on Windows)
+  Future<bool> startScreenCapture({
+    int fps = 20,
+    double quality = 0.6,
+    int width = 1280,
+    int height = 720,
+  }) async {
+    try {
+      final bool? res = await _channel.invokeMethod<bool>('startScreenCapture', {
+        'fps': fps,
+        'quality': quality,
+        'width': width,
+        'height': height,
+      });
+      return res ?? false;
+    } catch (e) {
+      debugPrint('Error starting native screen capture: $e');
+      return false;
+    }
+  }
+
+  /// Stop continuous native screen capture
+  Future<void> stopScreenCapture() async {
+    try {
+      await _channel.invokeMethod('stopScreenCapture');
+    } catch (e) {
+      debugPrint('Error stopping native screen capture: $e');
+    }
+  }
+
+  /// Capture a single screen frame on-demand as JPEG bytes
+  Future<Uint8List?> captureScreenFrame({
+    double quality = 0.6,
+    int width = 1280,
+    int height = 720,
+  }) async {
+    try {
+      final dynamic res = await _channel.invokeMethod('captureScreenFrame', {
+        'quality': quality,
+        'width': width,
+        'height': height,
+      });
+      if (res is Uint8List) {
+        return res;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error capturing single screen frame: $e');
+      return null;
     }
   }
 }

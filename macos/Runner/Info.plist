@@ -28,5 +28,7 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSScreenCaptureDescription</key>
+	<string>CrossControl requires screen recording access to stream your display during View Only and View &amp; Control sessions.</string>
 </dict>
 </plist>
