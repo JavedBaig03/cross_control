@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -150,15 +151,18 @@ void main() {
       await gesture.moveTo(const Offset(960, 540));
       await tester.pump();
 
-      // Wait 220ms wall-clock to ensure 200ms cooldown has passed
-      await Future<void>.delayed(const Duration(milliseconds: 220));
+      // Wait 250ms wall-clock to ensure 200ms cooldown has passed
+      sleep(const Duration(milliseconds: 250));
       await tester.pump();
 
       // Move gradually toward edge (< 40 margin) with realistic deltas
-      for (double x = 960; x >= 15; x -= 50) {
+      for (double x = 960; x >= 60; x -= 50) {
         await gesture.moveTo(Offset(x, 540));
         await tester.pump(const Duration(milliseconds: 20));
       }
+      // Step into the boundary edge (< 40px)
+      await gesture.moveTo(const Offset(20, 540));
+      await tester.pump(const Duration(milliseconds: 20));
 
       // In Control Only mode, edge recentering IS preserved to allow continuous motion
       final warpCalls = nativeCalls.where((c) => c.method == 'warpPointer').toList();
