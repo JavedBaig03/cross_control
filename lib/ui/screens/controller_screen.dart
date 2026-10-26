@@ -315,20 +315,24 @@ class _ControllerScreenState extends State<ControllerScreen> {
       ));
     }
 
-    // Only recenter when pointer actually approaches physical screen boundaries (edges)
-    final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
-    if (renderBox != null && renderBox.hasSize) {
-      final size = renderBox.size;
-      const double edgeMargin = 40.0;
-      final bool isNearEdge = event.position.dx < edgeMargin ||
-          event.position.dx > size.width - edgeMargin ||
-          event.position.dy < edgeMargin ||
-          event.position.dy > size.height - edgeMargin;
+    // Only recenter in Control Only mode (no screen view) to allow continuous relative trackpad motion.
+    // In View & Control mode, the user points directly to absolute remote screen coordinates,
+    // so reaching a screen edge must never snap the cursor back to the center.
+    if (!widget.mode.allowsView) {
+      final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
+      if (renderBox != null && renderBox.hasSize) {
+        final size = renderBox.size;
+        const double edgeMargin = 40.0;
+        final bool isNearEdge = event.position.dx < edgeMargin ||
+            event.position.dx > size.width - edgeMargin ||
+            event.position.dy < edgeMargin ||
+            event.position.dy > size.height - edgeMargin;
 
-      final now = DateTime.now().millisecondsSinceEpoch;
-      if (isNearEdge && !_isWarpPending && (now - _lastWarpTimeMs > 200)) {
-        final center = Offset(size.width / 2, size.height / 2);
-        _recenterPointer(center);
+        final now = DateTime.now().millisecondsSinceEpoch;
+        if (isNearEdge && !_isWarpPending && (now - _lastWarpTimeMs > 200)) {
+          final center = Offset(size.width / 2, size.height / 2);
+          _recenterPointer(center);
+        }
       }
     }
   }
