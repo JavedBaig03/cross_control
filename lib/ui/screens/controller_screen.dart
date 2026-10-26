@@ -568,7 +568,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                                if (widget.mode.allowsView)
+                                if (widget.mode.allowsView) ...[
                                   ValueListenableBuilder<int>(
                                     valueListenable: ScreenStreamService().fpsNotifier,
                                     builder: (context, fps, _) {
@@ -579,6 +579,27 @@ class _ControllerScreenState extends State<ControllerScreen> {
                                       );
                                     },
                                   ),
+                                  ValueListenableBuilder<double>(
+                                    valueListenable: ScreenStreamService().bitrateMbpsNotifier,
+                                    builder: (context, mbps, _) {
+                                      if (mbps <= 0.05) return const SizedBox.shrink();
+                                      return Text(
+                                        '  •  ${mbps.toStringAsFixed(1)} Mbps',
+                                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w500),
+                                      );
+                                    },
+                                  ),
+                                  ValueListenableBuilder<String>(
+                                    valueListenable: ScreenStreamService().streamResolutionNotifier,
+                                    builder: (context, res, _) {
+                                      if (res.isEmpty) return const SizedBox.shrink();
+                                      return Text(
+                                        '  •  $res',
+                                        style: const TextStyle(color: AppColors.textMuted, fontSize: 12, fontWeight: FontWeight.w500),
+                                      );
+                                    },
+                                  ),
+                                ],
                                 ValueListenableBuilder<int>(
                                   valueListenable: NetworkService().latencyMsNotifier,
                                   builder: (context, latency, _) {
@@ -1197,19 +1218,44 @@ class _ControllerScreenState extends State<ControllerScreen> {
                               builder: (context, fps, _) {
                                 return StatusPill(
                                   label: '$fps FPS',
-                                  color: fps > 0 ? AppColors.cyan : AppColors.textMuted,
+                                  color: fps >= 25 ? AppColors.emerald : (fps > 0 ? AppColors.cyan : AppColors.textMuted),
                                   icon: Icons.videocam_outlined,
-                                  isPulsing: false,
+                                  isPulsing: fps > 0,
                                 );
                               },
                             ),
                             const SizedBox(width: 8),
 
-                            StatusPill(
-                              label: '${widget.targetScreenWidth.toInt()}×${widget.targetScreenHeight.toInt()}',
-                              color: AppColors.textMuted,
-                              icon: Icons.aspect_ratio_rounded,
-                              isPulsing: false,
+                            ValueListenableBuilder<double>(
+                              valueListenable: ScreenStreamService().bitrateMbpsNotifier,
+                              builder: (context, mbps, _) {
+                                if (mbps <= 0.05) return const SizedBox.shrink();
+                                return Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    StatusPill(
+                                      label: '${mbps.toStringAsFixed(1)} Mbps',
+                                      color: AppColors.textMuted,
+                                      icon: Icons.speed_rounded,
+                                      isPulsing: false,
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
+                                );
+                              },
+                            ),
+
+                            ValueListenableBuilder<String>(
+                              valueListenable: ScreenStreamService().streamResolutionNotifier,
+                              builder: (context, res, _) {
+                                final label = res.isNotEmpty ? res : '${widget.targetScreenWidth.toInt()}×${widget.targetScreenHeight.toInt()}';
+                                return StatusPill(
+                                  label: label,
+                                  color: AppColors.textMuted,
+                                  icon: Icons.aspect_ratio_rounded,
+                                  isPulsing: false,
+                                );
+                              },
                             ),
                             const SizedBox(width: 8),
 

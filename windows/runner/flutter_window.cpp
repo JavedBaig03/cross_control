@@ -3,6 +3,7 @@
 #include <optional>
 #include <algorithm>
 #include <windows.h>
+#include <timeapi.h>
 #include <gdiplus.h>
 #include <thread>
 #include <atomic>
@@ -107,6 +108,75 @@ int GetEncoderClsid(const WCHAR* format, CLSID* pClsid) {
   return -1;
 }
 
+// Persistent desktop capture context to eliminate per-frame GDI allocations
+struct DesktopCaptureContext {
+  int screenW = 0;
+  int screenH = 0;
+  HDC hScreenDC = NULL;
+  HDC hCaptureDC = NULL;
+  HBITMAP hCaptureBitmap = NULL;
+  HBITMAP hOldCaptureBitmap = NULL;
+  void* pBits = nullptr;
+
+  void Cleanup() {
+    if (hCaptureDC) {
+      if (hOldCaptureBitmap) SelectObject(hCaptureDC, hOldCaptureBitmap);
+      DeleteDC(hCaptureDC);
+      hCaptureDC = NULL;
+    }
+    if (hCaptureBitmap) {
+      DeleteObject(hCaptureBitmap);
+      hCaptureBitmap = NULL;
+    }
+    if (hScreenDC) {
+      ReleaseDC(NULL, hScreenDC);
+      hScreenDC = NULL;
+    }
+    pBits = nullptr;
+    screenW = 0;
+    screenH = 0;
+  }
+
+  bool Ensure(int curScreenW, int curScreenH) {
+    if (hCaptureDC && hCaptureBitmap && pBits &&
+        screenW == curScreenW && screenH == curScreenH) {
+      return true;
+    }
+    Cleanup();
+
+    hScreenDC = GetDC(NULL);
+    if (!hScreenDC) return false;
+
+    hCaptureDC = CreateCompatibleDC(hScreenDC);
+    if (!hCaptureDC) {
+      ReleaseDC(NULL, hScreenDC);
+      hScreenDC = NULL;
+      return false;
+    }
+
+    BITMAPINFO bmi = {0};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = curScreenW;
+    bmi.bmiHeader.biHeight = -curScreenH; // Top-down
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    hCaptureBitmap = CreateDIBSection(hCaptureDC, &bmi, DIB_RGB_COLORS, &pBits, NULL, 0);
+    if (!hCaptureBitmap || !pBits) {
+      Cleanup();
+      return false;
+    }
+
+    hOldCaptureBitmap = (HBITMAP)SelectObject(hCaptureDC, hCaptureBitmap);
+    screenW = curScreenW;
+    screenH = curScreenH;
+    return true;
+  }
+};
+
+static DesktopCaptureContext g_captureContext;
+
 std::vector<uint8_t> CaptureDesktopJpeg(int targetWidth, int targetHeight, ULONG quality) {
   std::vector<uint8_t> resultBytes;
 
@@ -126,40 +196,40 @@ std::vector<uint8_t> CaptureDesktopJpeg(int targetWidth, int targetHeight, ULONG
     finalHeight = static_cast<int>((static_cast<double>(screenHeight) * 1920.0) / screenWidth);
   }
 
-  HDC hScreenDC = GetDC(NULL);
-  HDC hCaptureDC = CreateCompatibleDC(hScreenDC);
-  HBITMAP hCaptureBitmap = CreateCompatibleBitmap(hScreenDC, screenWidth, screenHeight);
-  HBITMAP hOldCaptureBitmap = (HBITMAP)SelectObject(hCaptureDC, hCaptureBitmap);
+  if (!g_captureContext.Ensure(screenWidth, screenHeight)) {
+    return resultBytes;
+  }
 
-  BitBlt(hCaptureDC, 0, 0, screenWidth, screenHeight, hScreenDC, 0, 0, SRCCOPY | CAPTUREBLT);
+  // 1. Direct block transfer into persistent DIB section
+  BitBlt(g_captureContext.hCaptureDC, 0, 0, screenWidth, screenHeight,
+         g_captureContext.hScreenDC, 0, 0, SRCCOPY | CAPTUREBLT);
 
-  // Render hardware cursor into frame
-  CURSORINFO cursorInfo = { 0 };
-  cursorInfo.cbSize = sizeof(cursorInfo);
+  // 2. Render hardware cursor into frame
+  CURSORINFO cursorInfo = { sizeof(CURSORINFO) };
   if (GetCursorInfo(&cursorInfo) && cursorInfo.flags == CURSOR_SHOWING) {
     ICONINFO iconInfo = { 0 };
     if (GetIconInfo(cursorInfo.hCursor, &iconInfo)) {
       int x = cursorInfo.ptScreenPos.x - iconInfo.xHotspot;
       int y = cursorInfo.ptScreenPos.y - iconInfo.yHotspot;
-      DrawIconEx(hCaptureDC, x, y, cursorInfo.hCursor, 0, 0, 0, NULL, DI_NORMAL);
+      DrawIconEx(g_captureContext.hCaptureDC, x, y, cursorInfo.hCursor, 0, 0, 0, NULL, DI_NORMAL);
       if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
       if (iconInfo.hbmMask) DeleteObject(iconInfo.hbmMask);
     }
   }
 
-  HBITMAP hFinalBitmap = hCaptureBitmap;
+  HBITMAP hFinalBitmap = g_captureContext.hCaptureBitmap;
   HDC hScaledDC = NULL;
   HBITMAP hScaledBitmap = NULL;
   HBITMAP hOldScaledBitmap = NULL;
 
   if (finalWidth != screenWidth || finalHeight != screenHeight) {
-    hScaledDC = CreateCompatibleDC(hScreenDC);
-    hScaledBitmap = CreateCompatibleBitmap(hScreenDC, finalWidth, finalHeight);
+    hScaledDC = CreateCompatibleDC(g_captureContext.hScreenDC);
+    hScaledBitmap = CreateCompatibleBitmap(g_captureContext.hScreenDC, finalWidth, finalHeight);
     hOldScaledBitmap = (HBITMAP)SelectObject(hScaledDC, hScaledBitmap);
 
-    SetStretchBltMode(hScaledDC, HALFTONE);
-    SetBrushOrgEx(hScaledDC, 0, 0, NULL);
-    StretchBlt(hScaledDC, 0, 0, finalWidth, finalHeight, hCaptureDC, 0, 0, screenWidth, screenHeight, SRCCOPY);
+    SetStretchBltMode(hScaledDC, COLORONCOLOR);
+    StretchBlt(hScaledDC, 0, 0, finalWidth, finalHeight,
+               g_captureContext.hCaptureDC, 0, 0, screenWidth, screenHeight, SRCCOPY);
     hFinalBitmap = hScaledBitmap;
   }
 
@@ -196,11 +266,6 @@ std::vector<uint8_t> CaptureDesktopJpeg(int targetWidth, int targetHeight, ULONG
     DeleteObject(hScaledBitmap);
     DeleteDC(hScaledDC);
   }
-
-  SelectObject(hCaptureDC, hOldCaptureBitmap);
-  DeleteObject(hCaptureBitmap);
-  DeleteDC(hCaptureDC);
-  ReleaseDC(NULL, hScreenDC);
 
   return resultBytes;
 }
@@ -517,7 +582,7 @@ bool FlutterWindow::OnCreate() {
         } else if (call.method_name() == "captureScreenFrame") {
           int width = args ? GetIntValue(*args, "width", 0) : 0;
           int height = args ? GetIntValue(*args, "height", 0) : 0;
-          double qualityD = args ? GetDoubleValue(*args, "quality", 0.75) : 0.75;
+          double qualityD = args ? GetDoubleValue(*args, "quality", 0.85) : 0.85;
           ULONG quality = static_cast<ULONG>(qualityD * 100.0);
           std::vector<uint8_t> jpeg = CaptureDesktopJpeg(width, height, quality);
           if (!jpeg.empty()) {
@@ -529,7 +594,7 @@ bool FlutterWindow::OnCreate() {
           int fps = args ? GetIntValue(*args, "fps", 30) : 30;
           int width = args ? GetIntValue(*args, "width", 0) : 0;
           int height = args ? GetIntValue(*args, "height", 0) : 0;
-          double qualityD = args ? GetDoubleValue(*args, "quality", 0.75) : 0.75;
+          double qualityD = args ? GetDoubleValue(*args, "quality", 0.85) : 0.85;
           ULONG quality = static_cast<ULONG>(qualityD * 100.0);
 
           if (!g_isScreenCaptureRunning) {
@@ -538,6 +603,7 @@ bool FlutterWindow::OnCreate() {
               g_screenCaptureThread.join();
             }
             g_screenCaptureThread = std::thread([fps, width, height, quality]() {
+              timeBeginPeriod(1);
               int intervalMs = (std::max)(10, 1000 / (std::max)(1, fps));
               while (g_isScreenCaptureRunning) {
                 auto start = std::chrono::steady_clock::now();
@@ -554,6 +620,7 @@ bool FlutterWindow::OnCreate() {
                   std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
                 }
               }
+              timeEndPeriod(1);
             });
           }
           result->Success(flutter::EncodableValue(true));
@@ -562,6 +629,7 @@ bool FlutterWindow::OnCreate() {
           if (g_screenCaptureThread.joinable()) {
             g_screenCaptureThread.join();
           }
+          g_captureContext.Cleanup();
           result->Success(flutter::EncodableValue(true));
         } else {
           result->NotImplemented();
@@ -604,6 +672,7 @@ void FlutterWindow::OnDestroy() {
   if (g_screenCaptureThread.joinable()) {
     g_screenCaptureThread.join();
   }
+  g_captureContext.Cleanup();
   if (g_gdiplusToken != 0) {
     Gdiplus::GdiplusShutdown(g_gdiplusToken);
     g_gdiplusToken = 0;

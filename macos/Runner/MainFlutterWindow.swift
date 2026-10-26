@@ -193,7 +193,7 @@ class MainFlutterWindow: NSWindow {
       case "startScreenCapture":
         if #available(macOS 12.3, *) {
           let fps = args?["fps"] as? Int ?? 30
-          let quality = Float(args?["quality"] as? Double ?? 0.75)
+          let quality = Float(args?["quality"] as? Double ?? 0.85)
           let width = args?["width"] as? Int ?? 0
           let height = args?["height"] as? Int ?? 0
           (self.screenCapture as? MacOSScreenCapture)?.start(fps: fps, quality: quality, targetWidth: width, targetHeight: height) { success in
@@ -211,7 +211,7 @@ class MainFlutterWindow: NSWindow {
 
       case "captureScreenFrame":
         if #available(macOS 12.3, *) {
-          let quality = Float(args?["quality"] as? Double ?? 0.75)
+          let quality = Float(args?["quality"] as? Double ?? 0.85)
           let width = args?["width"] as? Int ?? 0
           let height = args?["height"] as? Int ?? 0
           (self.screenCapture as? MacOSScreenCapture)?.captureSingleFrame(quality: quality, targetWidth: width, targetHeight: height) { data in
@@ -388,11 +388,14 @@ class MainFlutterWindow: NSWindow {
 @available(macOS 12.3, *)
 class MacOSScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
   private var stream: SCStream?
-  private let context = CIContext(options: [CIContextOption.useSoftwareRenderer: false])
+  private let context = CIContext(options: [
+    CIContextOption.useSoftwareRenderer: false,
+    CIContextOption.workingColorSpace: NSNull()
+  ])
   private let colorSpace = CGColorSpaceCreateDeviceRGB()
   private weak var channel: FlutterMethodChannel?
   private(set) var isRunning = false
-  private var quality: Float = 0.75
+  private var quality: Float = 0.85
 
   private var latestPendingJpeg: Data? = nil
   private var isDispatchPending = false
@@ -405,7 +408,7 @@ class MacOSScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
 
   func start(
     fps: Int = 30,
-    quality: Float = 0.75,
+    quality: Float = 0.85,
     targetWidth: Int = 0,
     targetHeight: Int = 0,
     completion: @escaping (Bool) -> Void
@@ -483,7 +486,7 @@ class MacOSScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
   }
 
   func captureSingleFrame(
-    quality: Float = 0.75,
+    quality: Float = 0.85,
     targetWidth: Int = 0,
     targetHeight: Int = 0,
     completion: @escaping (FlutterStandardTypedData?) -> Void

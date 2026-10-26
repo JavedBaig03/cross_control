@@ -25,14 +25,19 @@ class ScreenStreamService {
   final ValueNotifier<Uint8List?> currentFrameNotifier = ValueNotifier<Uint8List?>(null);
   final ValueNotifier<ui.Image?> currentImageNotifier = ValueNotifier<ui.Image?>(null);
   final ValueNotifier<int> fpsNotifier = ValueNotifier<int>(0);
+  final ValueNotifier<int> receivedFpsNotifier = ValueNotifier<int>(0);
+  final ValueNotifier<double> bitrateMbpsNotifier = ValueNotifier<double>(0.0);
+  final ValueNotifier<String> streamResolutionNotifier = ValueNotifier<String>('');
   final ValueNotifier<bool> isStreamingNotifier = ValueNotifier<bool>(false);
 
   // Background decoding state
   bool _isDecoding = false;
   Uint8List? _nextFrameToDecode;
 
-  // FPS calculation
-  int _frameCountInWindow = 0;
+  // FPS and throughput calculation
+  int _receivedFramesInWindow = 0;
+  int _displayedFramesInWindow = 0;
+  int _totalBytesInWindow = 0;
   int _windowStartTime = 0;
 
   bool get isReceiverServerRunning => _serverSocket != null;
@@ -90,10 +95,10 @@ class ScreenStreamService {
       _sendFrameToClient(frameBytes);
     };
 
-    // Start native continuous capture (ScreenCaptureKit / GDI) at 30 FPS, 0.75 quality, native aspect ratio
+    // Start native continuous capture (ScreenCaptureKit / GDI) at 30 FPS, 0.85 quality, native aspect ratio
     await NativeInputService().startScreenCapture(
       fps: 30,
-      quality: 0.75,
+      quality: 0.85,
       width: 0,
       height: 0,
     );
@@ -104,7 +109,7 @@ class ScreenStreamService {
       final now = DateTime.now().millisecondsSinceEpoch;
       if (now - _lastFrameTimestamp > 1500) {
         final frame = await NativeInputService().captureScreenFrame(
-          quality: 0.75,
+          quality: 0.85,
           width: 0,
           height: 0,
         );
@@ -156,7 +161,10 @@ class ScreenStreamService {
         final header = ByteData(4)..setUint32(0, frameToSend.length, Endian.big);
         client.add(header.buffer.asUint8List());
         client.add(frameToSend);
-        await client.flush();
+
+        // Yield to the event loop so the socket can write asynchronously without
+        // blocking the Dart isolate on TCP acknowledgment round trips.
+        await Future<void>.delayed(Duration.zero);
       }
     } catch (e) {
       debugPrint('Error sending frame to stream client: $e');
@@ -214,7 +222,9 @@ class ScreenStreamService {
       _streamClientSocket = socket;
       isStreamingNotifier.value = true;
       _windowStartTime = DateTime.now().millisecondsSinceEpoch;
-      _frameCountInWindow = 0;
+      _receivedFramesInWindow = 0;
+      _displayedFramesInWindow = 0;
+      _totalBytesInWindow = 0;
 
       // High performance zero-copy packet reassembler
       Uint8List? frameBuffer;
@@ -312,16 +322,10 @@ class ScreenStreamService {
     currentFrameNotifier.value = frameBytes;
     onFrame?.call(frameBytes);
 
-    _decodeAndNotify(frameBytes);
+    _receivedFramesInWindow++;
+    _totalBytesInWindow += frameBytes.length + 4;
 
-    // Calculate actual displayed FPS
-    _frameCountInWindow++;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _windowStartTime >= 1000) {
-      fpsNotifier.value = _frameCountInWindow;
-      _frameCountInWindow = 0;
-      _windowStartTime = now;
-    }
+    _decodeAndNotify(frameBytes);
   }
 
   void _decodeAndNotify(Uint8List bytes) async {
@@ -341,6 +345,22 @@ class ScreenStreamService {
       final old = currentImageNotifier.value;
       currentImageNotifier.value = image;
       old?.dispose();
+
+      // Track ACTUAL displayed frames presented to Flutter rendering pipeline
+      _displayedFramesInWindow++;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - _windowStartTime >= 1000) {
+        final double seconds = (now - _windowStartTime) / 1000.0;
+        fpsNotifier.value = (_displayedFramesInWindow / seconds).round();
+        receivedFpsNotifier.value = (_receivedFramesInWindow / seconds).round();
+        bitrateMbpsNotifier.value = ((_totalBytesInWindow * 8.0) / (1024.0 * 1024.0)) / seconds;
+        streamResolutionNotifier.value = '${image.width}x${image.height}';
+
+        _displayedFramesInWindow = 0;
+        _receivedFramesInWindow = 0;
+        _totalBytesInWindow = 0;
+        _windowStartTime = now;
+      }
     } catch (_) {
       // Gracefully ignore decoding errors for incomplete or synthetic test payloads
     } finally {
@@ -356,12 +376,19 @@ class ScreenStreamService {
   Future<void> disconnectStream() async {
     isStreamingNotifier.value = false;
     fpsNotifier.value = 0;
+    receivedFpsNotifier.value = 0;
+    bitrateMbpsNotifier.value = 0.0;
+    streamResolutionNotifier.value = '';
     currentFrameNotifier.value = null;
 
     currentImageNotifier.value?.dispose();
     currentImageNotifier.value = null;
     _nextFrameToDecode = null;
     _isDecoding = false;
+
+    _displayedFramesInWindow = 0;
+    _receivedFramesInWindow = 0;
+    _totalBytesInWindow = 0;
 
     try {
       await _streamSubscription?.cancel();
