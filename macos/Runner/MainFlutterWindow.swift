@@ -192,10 +192,10 @@ class MainFlutterWindow: NSWindow {
 
       case "startScreenCapture":
         if #available(macOS 12.3, *) {
-          let fps = args?["fps"] as? Int ?? 20
-          let quality = Float(args?["quality"] as? Double ?? 0.6)
-          let width = args?["width"] as? Int ?? 1280
-          let height = args?["height"] as? Int ?? 720
+          let fps = args?["fps"] as? Int ?? 30
+          let quality = Float(args?["quality"] as? Double ?? 0.75)
+          let width = args?["width"] as? Int ?? 0
+          let height = args?["height"] as? Int ?? 0
           (self.screenCapture as? MacOSScreenCapture)?.start(fps: fps, quality: quality, targetWidth: width, targetHeight: height) { success in
             result(success)
           }
@@ -211,9 +211,9 @@ class MainFlutterWindow: NSWindow {
 
       case "captureScreenFrame":
         if #available(macOS 12.3, *) {
-          let quality = Float(args?["quality"] as? Double ?? 0.6)
-          let width = args?["width"] as? Int ?? 1280
-          let height = args?["height"] as? Int ?? 720
+          let quality = Float(args?["quality"] as? Double ?? 0.75)
+          let width = args?["width"] as? Int ?? 0
+          let height = args?["height"] as? Int ?? 0
           (self.screenCapture as? MacOSScreenCapture)?.captureSingleFrame(quality: quality, targetWidth: width, targetHeight: height) { data in
             result(data)
           }
@@ -391,9 +391,12 @@ class MacOSScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
   private let context = CIContext(options: [CIContextOption.useSoftwareRenderer: false])
   private let colorSpace = CGColorSpaceCreateDeviceRGB()
   private weak var channel: FlutterMethodChannel?
-  private var isEncodingOrPending = false
   private(set) var isRunning = false
-  private var quality: Float = 0.6
+  private var quality: Float = 0.75
+
+  private var latestPendingJpeg: Data? = nil
+  private var isDispatchPending = false
+  private let queueLock = NSLock()
 
   init(channel: FlutterMethodChannel) {
     self.channel = channel
@@ -401,10 +404,10 @@ class MacOSScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
   }
 
   func start(
-    fps: Int = 20,
-    quality: Float = 0.6,
-    targetWidth: Int = 1280,
-    targetHeight: Int = 720,
+    fps: Int = 30,
+    quality: Float = 0.75,
+    targetWidth: Int = 0,
+    targetHeight: Int = 0,
     completion: @escaping (Bool) -> Void
   ) {
     self.quality = quality
@@ -423,9 +426,27 @@ class MacOSScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
 
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let config = SCStreamConfiguration()
-        config.width = targetWidth > 0 ? targetWidth : display.width
-        config.height = targetHeight > 0 ? targetHeight : display.height
+
+        // Preserve native display aspect ratio up to 1080p equivalent
+        let displayWidth = display.width
+        let displayHeight = display.height
+        let aspect = Double(displayWidth) / Double(max(1, displayHeight))
+
+        var streamWidth = displayWidth
+        var streamHeight = displayHeight
+
+        if targetWidth > 0 && targetHeight > 0 {
+          streamWidth = targetWidth
+          streamHeight = targetHeight
+        } else if streamWidth > 1920 {
+          streamWidth = 1920
+          streamHeight = Int(1920.0 / aspect)
+        }
+
+        config.width = streamWidth
+        config.height = streamHeight
         config.minimumFrameInterval = CMTime(value: 1, timescale: Int32(max(1, fps)))
+        config.queueDepth = 5
         config.showsCursor = true
         config.pixelFormat = kCVPixelFormatType_32BGRA
 
@@ -448,6 +469,11 @@ class MacOSScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
 
   func stop() {
     isRunning = false
+    queueLock.lock()
+    latestPendingJpeg = nil
+    isDispatchPending = false
+    queueLock.unlock()
+
     if let stream = stream {
       Task {
         try? await stream.stopCapture()
@@ -457,9 +483,9 @@ class MacOSScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
   }
 
   func captureSingleFrame(
-    quality: Float = 0.6,
-    targetWidth: Int = 1280,
-    targetHeight: Int = 720,
+    quality: Float = 0.75,
+    targetWidth: Int = 0,
+    targetHeight: Int = 0,
     completion: @escaping (FlutterStandardTypedData?) -> Void
   ) {
     if #available(macOS 14.0, *) {
@@ -472,8 +498,24 @@ class MacOSScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
           }
           let filter = SCContentFilter(display: display, excludingWindows: [])
           let config = SCStreamConfiguration()
-          config.width = targetWidth > 0 ? targetWidth : display.width
-          config.height = targetHeight > 0 ? targetHeight : display.height
+
+          let displayWidth = display.width
+          let displayHeight = display.height
+          let aspect = Double(displayWidth) / Double(max(1, displayHeight))
+
+          var streamWidth = displayWidth
+          var streamHeight = displayHeight
+
+          if targetWidth > 0 && targetHeight > 0 {
+            streamWidth = targetWidth
+            streamHeight = targetHeight
+          } else if streamWidth > 1920 {
+            streamWidth = 1920
+            streamHeight = Int(1920.0 / aspect)
+          }
+
+          config.width = streamWidth
+          config.height = streamHeight
           config.showsCursor = true
           let cgImage = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
           let rep = NSBitmapImageRep(cgImage: cgImage)
@@ -493,21 +535,45 @@ class MacOSScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
 
   func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
     guard isRunning, type == .screen else { return }
-    guard !isEncodingOrPending else { return }
-    guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
-    isEncodingOrPending = true
-    let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-    let options = [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: quality as NSNumber]
-    guard let jpegData = context.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: options) else {
-      isEncodingOrPending = false
+    if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
+       let statusRaw = attachments.first?[.status] as? Int,
+       let status = SCFrameStatus(rawValue: statusRaw),
+       status != .complete {
       return
     }
 
-    DispatchQueue.main.async { [weak self] in
-      guard let self = self, self.isRunning else { return }
-      self.channel?.invokeMethod("onScreenFrame", arguments: ["frame": FlutterStandardTypedData(bytes: jpegData)])
-      self.isEncodingOrPending = false
+    guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+
+    let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+    let options = [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: quality as NSNumber]
+    guard let jpegData = context.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: options) else {
+      return
+    }
+
+    // Prioritize the latest frame and dispatch without blocking the sample queue or building a UI queue
+    queueLock.lock()
+    latestPendingJpeg = jpegData
+    if !isDispatchPending {
+      isDispatchPending = true
+      queueLock.unlock()
+
+      DispatchQueue.main.async { [weak self] in
+        guard let self = self else { return }
+        var dataToSend: Data? = nil
+
+        self.queueLock.lock()
+        dataToSend = self.latestPendingJpeg
+        self.latestPendingJpeg = nil
+        self.isDispatchPending = false
+        self.queueLock.unlock()
+
+        if let data = dataToSend, self.isRunning {
+          self.channel?.invokeMethod("onScreenFrame", arguments: ["frame": FlutterStandardTypedData(bytes: data)])
+        }
+      }
+    } else {
+      queueLock.unlock()
     }
   }
 

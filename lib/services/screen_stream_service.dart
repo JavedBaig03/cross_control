@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
+import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'native_input_service.dart';
 import 'storage_service.dart';
@@ -13,16 +14,22 @@ class ScreenStreamService {
   // Receiver-side server state
   ServerSocket? _serverSocket;
   Socket? _receiverClientSocket;
-  bool _isWritingFrame = false;
   Timer? _fallbackCaptureTimer;
   int _lastFrameTimestamp = 0;
+  Uint8List? _latestPendingFrame;
+  bool _isTransmitting = false;
 
   // Controller-side client state
   Socket? _streamClientSocket;
   StreamSubscription? _streamSubscription;
   final ValueNotifier<Uint8List?> currentFrameNotifier = ValueNotifier<Uint8List?>(null);
+  final ValueNotifier<ui.Image?> currentImageNotifier = ValueNotifier<ui.Image?>(null);
   final ValueNotifier<int> fpsNotifier = ValueNotifier<int>(0);
   final ValueNotifier<bool> isStreamingNotifier = ValueNotifier<bool>(false);
+
+  // Background decoding state
+  bool _isDecoding = false;
+  Uint8List? _nextFrameToDecode;
 
   // FPS calculation
   int _frameCountInWindow = 0;
@@ -83,23 +90,23 @@ class ScreenStreamService {
       _sendFrameToClient(frameBytes);
     };
 
-    // Start native continuous capture (ScreenCaptureKit / GDI)
+    // Start native continuous capture (ScreenCaptureKit / GDI) at 30 FPS, 0.75 quality, native aspect ratio
     await NativeInputService().startScreenCapture(
-      fps: 25,
-      quality: 0.6,
-      width: 1280,
-      height: 720,
+      fps: 30,
+      quality: 0.75,
+      width: 0,
+      height: 0,
     );
 
-    // If native continuous stream didn't start or hasn't produced frames, run fallback periodic capture
+    // If native continuous stream didn't produce frames for > 1500ms, run fallback periodic capture
     _fallbackCaptureTimer?.cancel();
-    _fallbackCaptureTimer = Timer.periodic(const Duration(milliseconds: 70), (_) async {
+    _fallbackCaptureTimer = Timer.periodic(const Duration(milliseconds: 100), (_) async {
       final now = DateTime.now().millisecondsSinceEpoch;
-      if (now - _lastFrameTimestamp > 300) {
+      if (now - _lastFrameTimestamp > 1500) {
         final frame = await NativeInputService().captureScreenFrame(
-          quality: 0.6,
-          width: 1280,
-          height: 720,
+          quality: 0.75,
+          width: 0,
+          height: 0,
         );
         if (frame != null && frame.isNotEmpty) {
           _sendFrameToClient(frame);
@@ -123,21 +130,39 @@ class ScreenStreamService {
     );
   }
 
-  void _sendFrameToClient(Uint8List frame) async {
-    final client = _receiverClientSocket;
-    if (client == null || _isWritingFrame) return; // Drop frame if network is backpressured
+  /// Prioritize latest frame and stream to client without building an outdated backlog
+  void _sendFrameToClient(Uint8List frame) {
+    if (_receiverClientSocket == null) return;
 
-    _isWritingFrame = true;
+    _latestPendingFrame = frame;
+
+    if (!_isTransmitting) {
+      _transmitLoop();
+    }
+  }
+
+  Future<void> _transmitLoop() async {
+    if (_isTransmitting) return;
+    _isTransmitting = true;
+
     try {
-      final header = ByteData(4)..setUint32(0, frame.length, Endian.big);
-      client.add(header.buffer.asUint8List());
-      client.add(frame);
-      await client.flush();
+      while (_receiverClientSocket != null && _latestPendingFrame != null) {
+        final frameToSend = _latestPendingFrame!;
+        _latestPendingFrame = null;
+
+        final client = _receiverClientSocket;
+        if (client == null) break;
+
+        final header = ByteData(4)..setUint32(0, frameToSend.length, Endian.big);
+        client.add(header.buffer.asUint8List());
+        client.add(frameToSend);
+        await client.flush();
+      }
     } catch (e) {
       debugPrint('Error sending frame to stream client: $e');
       _cleanupReceiverClient();
     } finally {
-      _isWritingFrame = false;
+      _isTransmitting = false;
     }
   }
 
@@ -147,11 +172,13 @@ class ScreenStreamService {
     NativeInputService().onScreenFrame = null;
     NativeInputService().stopScreenCapture();
 
+    _latestPendingFrame = null;
+    _isTransmitting = false;
+
     try {
       _receiverClientSocket?.destroy();
     } catch (_) {}
     _receiverClientSocket = null;
-    _isWritingFrame = false;
   }
 
   Future<void> stopStreamingServer() async {
@@ -189,54 +216,73 @@ class ScreenStreamService {
       _windowStartTime = DateTime.now().millisecondsSinceEpoch;
       _frameCountInWindow = 0;
 
-      final BytesBuilder buffer = BytesBuilder(copy: false);
-      int? expectedLength;
+      // High performance zero-copy packet reassembler
+      Uint8List? frameBuffer;
+      int frameBytesReceived = 0;
+      int expectedFrameLength = 0;
+
+      final Uint8List headerBuffer = Uint8List(4);
+      int headerBytesReceived = 0;
 
       _streamSubscription = socket.listen(
         (List<int> chunk) {
-          buffer.add(chunk);
+          int chunkOffset = 0;
 
-          while (true) {
-            if (expectedLength == null) {
-              if (buffer.length < 4) {
-                break; // Await more header bytes
-              }
-              final bytes = buffer.takeBytes();
-              final byteData = ByteData.sublistView(bytes);
-              expectedLength = byteData.getUint32(0, Endian.big);
+          while (chunkOffset < chunk.length) {
+            // Step 1: Read 4-byte big-endian length header
+            if (headerBytesReceived < 4) {
+              final bytesNeeded = 4 - headerBytesReceived;
+              final bytesAvailable = chunk.length - chunkOffset;
+              final copyCount = min(bytesNeeded, bytesAvailable);
 
-              // Put remaining bytes back into buffer
-              if (bytes.length > 4) {
-                buffer.add(bytes.sublist(4));
+              headerBuffer.setRange(
+                headerBytesReceived,
+                headerBytesReceived + copyCount,
+                chunk,
+                chunkOffset,
+              );
+              headerBytesReceived += copyCount;
+              chunkOffset += copyCount;
+
+              if (headerBytesReceived == 4) {
+                expectedFrameLength = ByteData.sublistView(headerBuffer).getUint32(0, Endian.big);
+                if (expectedFrameLength <= 0 || expectedFrameLength > 30 * 1024 * 1024) {
+                  debugPrint('Invalid stream frame length: $expectedFrameLength');
+                  headerBytesReceived = 0;
+                  expectedFrameLength = 0;
+                  frameBuffer = null;
+                  break;
+                }
+                frameBuffer = Uint8List(expectedFrameLength);
+                frameBytesReceived = 0;
               }
+              continue;
             }
 
-            if (expectedLength != null) {
-              if (buffer.length < expectedLength!) {
-                break; // Await full payload
-              }
+            // Step 2: Read payload bytes directly into targetBuffer
+            final targetBuffer = frameBuffer;
+            if (targetBuffer != null && frameBytesReceived < expectedFrameLength) {
+              final bytesNeeded = expectedFrameLength - frameBytesReceived;
+              final bytesAvailable = chunk.length - chunkOffset;
+              final copyCount = min(bytesNeeded, bytesAvailable);
 
-              final fullBuffer = buffer.takeBytes();
-              final Uint8List frameBytes = Uint8List.fromList(fullBuffer.sublist(0, expectedLength!));
+              targetBuffer.setRange(
+                frameBytesReceived,
+                frameBytesReceived + copyCount,
+                chunk,
+                chunkOffset,
+              );
+              frameBytesReceived += copyCount;
+              chunkOffset += copyCount;
 
-              // Re-add extra bytes past current frame
-              if (fullBuffer.length > expectedLength!) {
-                buffer.add(fullBuffer.sublist(expectedLength!));
-              }
+              if (frameBytesReceived == expectedFrameLength) {
+                final completedFrame = targetBuffer;
+                headerBytesReceived = 0;
+                expectedFrameLength = 0;
+                frameBuffer = null;
+                frameBytesReceived = 0;
 
-              expectedLength = null;
-
-              // Deliver frame
-              currentFrameNotifier.value = frameBytes;
-              onFrame?.call(frameBytes);
-
-              // Calculate FPS
-              _frameCountInWindow++;
-              final now = DateTime.now().millisecondsSinceEpoch;
-              if (now - _windowStartTime >= 1000) {
-                fpsNotifier.value = _frameCountInWindow;
-                _frameCountInWindow = 0;
-                _windowStartTime = now;
+                _deliverFrame(completedFrame, onFrame);
               }
             }
           }
@@ -262,10 +308,60 @@ class ScreenStreamService {
     }
   }
 
+  void _deliverFrame(Uint8List frameBytes, void Function(Uint8List frame)? onFrame) {
+    currentFrameNotifier.value = frameBytes;
+    onFrame?.call(frameBytes);
+
+    _decodeAndNotify(frameBytes);
+
+    // Calculate actual displayed FPS
+    _frameCountInWindow++;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _windowStartTime >= 1000) {
+      fpsNotifier.value = _frameCountInWindow;
+      _frameCountInWindow = 0;
+      _windowStartTime = now;
+    }
+  }
+
+  void _decodeAndNotify(Uint8List bytes) async {
+    if (_isDecoding) {
+      _nextFrameToDecode = bytes;
+      return;
+    }
+
+    _isDecoding = true;
+    try {
+      final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+      final descriptor = await ui.ImageDescriptor.encoded(buffer);
+      final codec = await descriptor.instantiateCodec();
+      final frameInfo = await codec.getNextFrame();
+      final image = frameInfo.image;
+
+      final old = currentImageNotifier.value;
+      currentImageNotifier.value = image;
+      old?.dispose();
+    } catch (_) {
+      // Gracefully ignore decoding errors for incomplete or synthetic test payloads
+    } finally {
+      _isDecoding = false;
+      if (_nextFrameToDecode != null) {
+        final next = _nextFrameToDecode!;
+        _nextFrameToDecode = null;
+        _decodeAndNotify(next);
+      }
+    }
+  }
+
   Future<void> disconnectStream() async {
     isStreamingNotifier.value = false;
     fpsNotifier.value = 0;
     currentFrameNotifier.value = null;
+
+    currentImageNotifier.value?.dispose();
+    currentImageNotifier.value = null;
+    _nextFrameToDecode = null;
+    _isDecoding = false;
 
     try {
       await _streamSubscription?.cancel();

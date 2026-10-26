@@ -77,7 +77,14 @@ static ULONG_PTR g_gdiplusToken = 0;
 static std::atomic<bool> g_isScreenCaptureRunning(false);
 static std::thread g_screenCaptureThread;
 
+static CLSID g_jpegClsid = { 0 };
+static bool g_hasJpegClsid = false;
+
 int GetEncoderClsid(const WCHAR* format, CLSID* pClsid) {
+  if (g_hasJpegClsid && wcscmp(format, L"image/jpeg") == 0) {
+    *pClsid = g_jpegClsid;
+    return 0;
+  }
   UINT num = 0;
   UINT size = 0;
   Gdiplus::GetImageEncodersSize(&num, &size);
@@ -88,6 +95,10 @@ int GetEncoderClsid(const WCHAR* format, CLSID* pClsid) {
   for (UINT j = 0; j < num; ++j) {
     if (wcscmp(pImageCodecInfo[j].MimeType, format) == 0) {
       *pClsid = pImageCodecInfo[j].Clsid;
+      if (wcscmp(format, L"image/jpeg") == 0) {
+        g_jpegClsid = *pClsid;
+        g_hasJpegClsid = true;
+      }
       free(pImageCodecInfo);
       return j;
     }
@@ -103,12 +114,24 @@ std::vector<uint8_t> CaptureDesktopJpeg(int targetWidth, int targetHeight, ULONG
   int screenHeight = GetSystemMetrics(SM_CYSCREEN);
   if (screenWidth <= 0 || screenHeight <= 0) return resultBytes;
 
-  HDC hScreenDC = GetDC(NULL);
-  HDC hMemoryDC = CreateCompatibleDC(hScreenDC);
-  HBITMAP hBitmap = CreateCompatibleBitmap(hScreenDC, screenWidth, screenHeight);
-  HBITMAP hOldBitmap = (HBITMAP)SelectObject(hMemoryDC, hBitmap);
+  // Preserve native aspect ratio up to 1080p
+  int finalWidth = screenWidth;
+  int finalHeight = screenHeight;
 
-  BitBlt(hMemoryDC, 0, 0, screenWidth, screenHeight, hScreenDC, 0, 0, SRCCOPY | CAPTUREBLT);
+  if (targetWidth > 0 && targetHeight > 0) {
+    finalWidth = targetWidth;
+    finalHeight = targetHeight;
+  } else if (screenWidth > 1920) {
+    finalWidth = 1920;
+    finalHeight = static_cast<int>((static_cast<double>(screenHeight) * 1920.0) / screenWidth);
+  }
+
+  HDC hScreenDC = GetDC(NULL);
+  HDC hCaptureDC = CreateCompatibleDC(hScreenDC);
+  HBITMAP hCaptureBitmap = CreateCompatibleBitmap(hScreenDC, screenWidth, screenHeight);
+  HBITMAP hOldCaptureBitmap = (HBITMAP)SelectObject(hCaptureDC, hCaptureBitmap);
+
+  BitBlt(hCaptureDC, 0, 0, screenWidth, screenHeight, hScreenDC, 0, 0, SRCCOPY | CAPTUREBLT);
 
   // Render hardware cursor into frame
   CURSORINFO cursorInfo = { 0 };
@@ -118,22 +141,29 @@ std::vector<uint8_t> CaptureDesktopJpeg(int targetWidth, int targetHeight, ULONG
     if (GetIconInfo(cursorInfo.hCursor, &iconInfo)) {
       int x = cursorInfo.ptScreenPos.x - iconInfo.xHotspot;
       int y = cursorInfo.ptScreenPos.y - iconInfo.yHotspot;
-      DrawIconEx(hMemoryDC, x, y, cursorInfo.hCursor, 0, 0, 0, NULL, DI_NORMAL);
+      DrawIconEx(hCaptureDC, x, y, cursorInfo.hCursor, 0, 0, 0, NULL, DI_NORMAL);
       if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
       if (iconInfo.hbmMask) DeleteObject(iconInfo.hbmMask);
     }
   }
 
-  Gdiplus::Bitmap rawBitmap(hBitmap, NULL);
-  Gdiplus::Bitmap* pFinalBitmap = &rawBitmap;
-  std::unique_ptr<Gdiplus::Bitmap> scaledBitmap;
-  if (targetWidth > 0 && targetHeight > 0 && (targetWidth != screenWidth || targetHeight != screenHeight)) {
-    scaledBitmap = std::make_unique<Gdiplus::Bitmap>(targetWidth, targetHeight, rawBitmap.GetPixelFormat());
-    Gdiplus::Graphics g(scaledBitmap.get());
-    g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBilinear);
-    g.DrawImage(&rawBitmap, 0, 0, targetWidth, targetHeight);
-    pFinalBitmap = scaledBitmap.get();
+  HBITMAP hFinalBitmap = hCaptureBitmap;
+  HDC hScaledDC = NULL;
+  HBITMAP hScaledBitmap = NULL;
+  HBITMAP hOldScaledBitmap = NULL;
+
+  if (finalWidth != screenWidth || finalHeight != screenHeight) {
+    hScaledDC = CreateCompatibleDC(hScreenDC);
+    hScaledBitmap = CreateCompatibleBitmap(hScreenDC, finalWidth, finalHeight);
+    hOldScaledBitmap = (HBITMAP)SelectObject(hScaledDC, hScaledBitmap);
+
+    SetStretchBltMode(hScaledDC, HALFTONE);
+    SetBrushOrgEx(hScaledDC, 0, 0, NULL);
+    StretchBlt(hScaledDC, 0, 0, finalWidth, finalHeight, hCaptureDC, 0, 0, screenWidth, screenHeight, SRCCOPY);
+    hFinalBitmap = hScaledBitmap;
   }
+
+  Gdiplus::Bitmap rawBitmap(hFinalBitmap, NULL);
 
   CLSID encoderClsid;
   if (GetEncoderClsid(L"image/jpeg", &encoderClsid) >= 0) {
@@ -146,7 +176,7 @@ std::vector<uint8_t> CaptureDesktopJpeg(int targetWidth, int targetHeight, ULONG
       encoderParameters.Parameter[0].NumberOfValues = 1;
       encoderParameters.Parameter[0].Value = &quality;
 
-      if (pFinalBitmap->Save(pStream, &encoderClsid, &encoderParameters) == Gdiplus::Ok) {
+      if (rawBitmap.Save(pStream, &encoderClsid, &encoderParameters) == Gdiplus::Ok) {
         STATSTG stat;
         if (pStream->Stat(&stat, STATFLAG_NONAME) == S_OK) {
           DWORD size = (DWORD)stat.cbSize.LowPart;
@@ -161,9 +191,15 @@ std::vector<uint8_t> CaptureDesktopJpeg(int targetWidth, int targetHeight, ULONG
     }
   }
 
-  SelectObject(hMemoryDC, hOldBitmap);
-  DeleteObject(hBitmap);
-  DeleteDC(hMemoryDC);
+  if (hScaledDC) {
+    SelectObject(hScaledDC, hOldScaledBitmap);
+    DeleteObject(hScaledBitmap);
+    DeleteDC(hScaledDC);
+  }
+
+  SelectObject(hCaptureDC, hOldCaptureBitmap);
+  DeleteObject(hCaptureBitmap);
+  DeleteDC(hCaptureDC);
   ReleaseDC(NULL, hScreenDC);
 
   return resultBytes;
@@ -479,9 +515,9 @@ bool FlutterWindow::OnCreate() {
         } else if (call.method_name() == "openScreenCaptureSettings") {
           result->Success(flutter::EncodableValue(true));
         } else if (call.method_name() == "captureScreenFrame") {
-          int width = args ? GetIntValue(*args, "width", 1280) : 1280;
-          int height = args ? GetIntValue(*args, "height", 720) : 720;
-          double qualityD = args ? GetDoubleValue(*args, "quality", 0.6) : 0.6;
+          int width = args ? GetIntValue(*args, "width", 0) : 0;
+          int height = args ? GetIntValue(*args, "height", 0) : 0;
+          double qualityD = args ? GetDoubleValue(*args, "quality", 0.75) : 0.75;
           ULONG quality = static_cast<ULONG>(qualityD * 100.0);
           std::vector<uint8_t> jpeg = CaptureDesktopJpeg(width, height, quality);
           if (!jpeg.empty()) {
@@ -490,10 +526,10 @@ bool FlutterWindow::OnCreate() {
             result->Success();
           }
         } else if (call.method_name() == "startScreenCapture") {
-          int fps = args ? GetIntValue(*args, "fps", 20) : 20;
-          int width = args ? GetIntValue(*args, "width", 1280) : 1280;
-          int height = args ? GetIntValue(*args, "height", 720) : 720;
-          double qualityD = args ? GetDoubleValue(*args, "quality", 0.6) : 0.6;
+          int fps = args ? GetIntValue(*args, "fps", 30) : 30;
+          int width = args ? GetIntValue(*args, "width", 0) : 0;
+          int height = args ? GetIntValue(*args, "height", 0) : 0;
+          double qualityD = args ? GetDoubleValue(*args, "quality", 0.75) : 0.75;
           ULONG quality = static_cast<ULONG>(qualityD * 100.0);
 
           if (!g_isScreenCaptureRunning) {
